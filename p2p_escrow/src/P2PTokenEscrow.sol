@@ -11,9 +11,9 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     struct Listing {
         address seller;
         IERC20 token;
-        uint256 totalAmount;     // total tokens seller is offering in this listing
-        uint256 remaining;       // remaining tokens not locked in purchases
-        uint256 pricePerToken;   // informational: price per token in (INR). purely UI/off-chain
+        uint256 totalAmount;
+        uint256 remaining;
+        uint256 pricePerToken;
         bool active;
         uint256 createdAt;
     }
@@ -23,34 +23,64 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     struct Purchase {
         uint256 listingId;
         address buyer;
-        uint256 quantity;       // tokens buyer wants to buy from listing
-        uint256 agreedPricePerToken; // agreed price per token (paise) stored for audit/UI
+        uint256 quantity;
+        uint256 agreedPricePerToken;
         PurchaseStatus status;
-        address seller;         // snapshot of listing.seller at time of proposal
+        address seller;
         uint256 createdAt;
     }
 
-    Listing[] public listings; 
-    mapping(address => uint256[]) public sellerListings; //for seller dashboard
+    Listing[] public listings;
+    // Mapping to track listings created by a seller
+    mapping(address => uint256[]) public sellerListings;
 
+    Purchase[] public purchases;
+    // Mapping to track purchases received by a listing (for the seller to see)
+    mapping(uint256 => uint256[]) public listingPurchases;
+    
+    // Mapping to track purchases that have been completed/released for a buyer ("My Orders" - completed)
+    mapping(address => uint256[]) public buyerPurchases;
 
-    Purchase[] public purchases; 
-    mapping(uint256 => uint256[]) public listingPurchases; //listingid->purchaseids
+    // Mapping to track purchases proposed by a buyer (offers / proposed)
+    mapping(address => uint256[]) public buyerProposedPurchases;
 
     event ListingCreated(uint256 indexed listingId, address indexed seller, address token, uint256 totalAmount, uint256 pricePerToken);
     event PurchaseProposed(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer, uint256 quantity, uint256 pricePerToken);
-    event PurchaseLocked(uint256 indexed purchaseId, uint256 indexed listingId, address indexed  seller, uint256 quantity);
+    event PurchaseLocked(uint256 indexed purchaseId, uint256 indexed listingId, address indexed seller, uint256 quantity);
     event PurchaseReleased(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer, uint256 quantity);
     event ListingUpdatedRemaining(uint256 indexed listingId, uint256 remaining);
     event PurchaseRefunded(uint256 indexed purchaseId, uint256 indexed listingId, address indexed seller, uint256 quantity);
     event PurchaseCancelled(uint256 indexed purchaseId);
     event ListingCancelled(uint256 indexed listingId);
+    event PurchaseDisputed(uint256 indexed purchaseId, address indexed disputer);
 
     constructor() Ownable(msg.sender) {}
 
+    // ==========================================
+    //                 MODIFIERS
+    // ==========================================
+    modifier validListing(uint256 _listingId) {
+        require(_listingId < listings.length, "Invalid listing ID");
+        _;
+    }
+
+    modifier validPurchase(uint256 _purchaseId) {
+        require(_purchaseId < purchases.length, "Invalid purchase ID");
+        _;
+    }
+
+    modifier onlyListingSeller(uint256 _listingId) {
+        require(listings[_listingId].seller == msg.sender, "Only seller can perform this");
+        _;
+    }
+
+    // ==========================================
+    //                 CORE FUNCTIONS
+    // ==========================================
+
     function createListing(IERC20 token, uint256 totalAmount, uint256 pricePerToken) external returns (uint256) {
-        require(totalAmount > 0, "totalAmount>0");
-        require(address(token) != address(0), "invalid token");
+        require(totalAmount > 0, "Amount must be > 0");
+        require(address(token) != address(0), "Invalid token address");
 
         Listing memory l = Listing({
             seller: msg.sender,
@@ -70,51 +100,15 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         return listingId;
     }
 
-    function getListings() external  view returns (
-        uint256[] memory ids,
-        address[] memory sellers,
-        address[] memory tokens,
-        uint256[] memory totals,
-        uint256[] memory remainings,
-        uint256[] memory prices,
-        bool[] memory actives,
-        uint256[] memory createdAts
-    ) {
+    function proposePurchase(uint256 listingId, uint256 quantity, uint256 agreedPricePerToken) 
+        external 
+        validListing(listingId) 
+        returns (uint256) 
+    {
+        Listing memory l = listings[listingId]; 
 
-        uint256 n = listings.length;
-        ids = new uint256[](n);
-
-        sellers = new address[](n);
-        tokens = new address[](n);
-        totals = new uint256[](n);
-        remainings = new uint256[](n);
-        prices = new uint256[](n);
-        actives = new bool[](n);
-        createdAts = new uint256[](n);
-
-        for (uint256 i = 0; i < n; ++i) {
-            Listing storage l = listings[i];
-            ids[i] = i;
-            sellers[i] = l.seller;
-            tokens[i] = address(l.token);
-            totals[i] = l.totalAmount;
-            remainings[i] = l.remaining;
-            prices[i] = l.pricePerToken;
-            actives[i] = l.active;
-            createdAts[i] = l.createdAt;
-        }
-    }
-
-    function getSellerListings(address seller) external view returns (uint256[] memory) {
-        return sellerListings[seller];
-    }
-
-    function proposePurchase(uint256 listingId, uint256 quantity, uint256 agreedPricePerToken) external returns (uint256) {
-
-        require(listingId < listings.length, "invalid listing");
-        Listing storage l = listings[listingId];
-        require(l.active, "listing not active");
-        require(quantity > 0 && quantity <= l.remaining, "invalid quantity");
+        require(l.active, "Listing not active");
+        require(quantity > 0 && quantity <= l.remaining, "Invalid quantity");
 
         Purchase memory p = Purchase({
             listingId: listingId,
@@ -128,61 +122,78 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
 
         purchases.push(p);
         uint256 purchaseId = purchases.length - 1;
-        listingPurchases[listingId].push(purchaseId);
+        
+        // Update Mappings
+        listingPurchases[listingId].push(purchaseId);          // For Seller: all offers on this listing
+        buyerProposedPurchases[msg.sender].push(purchaseId);   // For Buyer: proposals/offers they made
 
         emit PurchaseProposed(purchaseId, listingId, msg.sender, quantity, agreedPricePerToken);
         return purchaseId;
-
     }
 
-    function lockPurchase(uint256 purchaseId) external nonReentrant {
-        require(purchaseId < purchases.length, "invalid purchase");
+    function lockPurchase(uint256 purchaseId) 
+        external 
+        nonReentrant 
+        validPurchase(purchaseId) 
+    {
         Purchase storage p = purchases[purchaseId];
         Listing storage l = listings[p.listingId];
 
-        require(p.status == PurchaseStatus.Proposed, "purchase not proposed");
-        require(msg.sender == l.seller, "only seller can lock");
-        require(l.remaining >= p.quantity, "not enough remaining in listing");
-        require(l.active, "listing inactive");
+        require(p.status == PurchaseStatus.Proposed, "Purchase not proposed");
+        require(msg.sender == l.seller, "Only seller can lock");
+        require(l.remaining >= p.quantity, "Not enough tokens remaining");
+        require(l.active, "Listing inactive");
 
-        // Transfer tokens from seller to contract
+        // Seller moves tokens into escrow (contract)
         l.token.safeTransferFrom(msg.sender, address(this), p.quantity);
 
-        // Update states
         p.status = PurchaseStatus.Locked;
         l.remaining -= p.quantity;
 
+        // NOTE: we do NOT add to buyerPurchases here because buyerPurchases is intended
+        // to track purchases once they are released/completed. If you want to show "active"
+        // or "escrowed" for buyer, the frontend can fetch purchase details and filter by status == Locked.
+
         emit PurchaseLocked(purchaseId, p.listingId, msg.sender, p.quantity);
         emit ListingUpdatedRemaining(p.listingId, l.remaining);
+    }
 
-    } 
-
-    // Owner/arbiter releases locked tokens to buyer after backend verifies fiat
-    function releasePurchase(uint256 purchaseId) external nonReentrant onlyOwner {
-        require(purchaseId < purchases.length, "invalid purchase");
+    function releasePurchase(uint256 purchaseId) 
+        external 
+        nonReentrant 
+        onlyOwner 
+        validPurchase(purchaseId) 
+    {
         Purchase storage p = purchases[purchaseId];
         Listing storage l = listings[p.listingId];
         
-        // should add dispute function in future right now its unreachable status..
-        require(p.status == PurchaseStatus.Locked || p.status == PurchaseStatus.Disputed, "not releasable");
+        require(p.status == PurchaseStatus.Locked || p.status == PurchaseStatus.Disputed, "Not releasable");
 
         p.status = PurchaseStatus.Released;
+
+        // Record this as a completed purchase for the buyer
+        buyerPurchases[p.buyer].push(purchaseId);
+
+        // Transfer tokens to buyer
         l.token.safeTransfer(p.buyer, p.quantity);
 
         emit PurchaseReleased(purchaseId, p.listingId, p.buyer, p.quantity);
     }
 
-    function refundPurchase(uint256 purchaseId) external nonReentrant onlyOwner {
-        require(purchaseId < purchases.length, "invalid purchase");
+    function refundPurchase(uint256 purchaseId) 
+        external 
+        nonReentrant 
+        onlyOwner 
+        validPurchase(purchaseId) 
+    {
         Purchase storage p = purchases[purchaseId];
         Listing storage l = listings[p.listingId];
 
-        require(p.status == PurchaseStatus.Locked || p.status == PurchaseStatus.Disputed, "not refundable");
+        require(p.status == PurchaseStatus.Locked || p.status == PurchaseStatus.Disputed, "Not refundable");
 
         p.status = PurchaseStatus.Refunded;
         l.token.safeTransfer(l.seller, p.quantity);
 
-        // restore listing remaining (seller can re-list or keep)
         l.remaining += p.quantity;
         l.active = true;
 
@@ -190,31 +201,119 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         emit ListingUpdatedRemaining(p.listingId, l.remaining);
     }
 
-    function cancelProposedPurchase(uint256 purchaseId) external {
-        require(purchaseId < purchases.length, "invalid purchase");
+    function cancelProposedPurchase(uint256 purchaseId) 
+        external 
+        validPurchase(purchaseId) 
+    {
         Purchase storage p = purchases[purchaseId];
-        require(p.status == PurchaseStatus.Proposed, "not cancellable");
-        require(msg.sender == p.buyer || msg.sender == p.seller, "only buyer or seller");
+        require(p.status == PurchaseStatus.Proposed, "Not cancellable");
+        require(msg.sender == p.buyer || msg.sender == p.seller, "Only buyer or seller");
 
         p.status = PurchaseStatus.Cancelled;
         emit PurchaseCancelled(purchaseId);
     }
 
-    function cancelListing(uint256 listingId) external {
-        require(listingId < listings.length, "invalid listing");
-        Listing storage l = listings[listingId];
-        require(msg.sender == l.seller, "only seller");
-        require(l.active, "not active");
-
-        // We do NOT need to check for locked purchases. 
-        // Locked purchases are already secured in the contract.
-        // Cancelling simply stops NEW locks/proposals.
-        
-        l.active = false;
+    function cancelListing(uint256 listingId) 
+        external 
+        validListing(listingId) 
+        onlyListingSeller(listingId) 
+    {
+        require(listings[listingId].active, "Listing already inactive");
+        listings[listingId].active = false;
         emit ListingCancelled(listingId);
     }
 
-    function getListingById(uint256 id) public view returns (Listing memory) {
+    function raiseDispute(uint256 purchaseId) 
+        external 
+        validPurchase(purchaseId) 
+    {
+        Purchase storage p = purchases[purchaseId];
+
+        // 1. Only the Buyer or Seller involved in this specific purchase can dispute
+        require(msg.sender == p.buyer || msg.sender == p.seller, "Not party to transaction");
+
+        // 2. Can only dispute if funds are currently in Escrow (Locked)
+        // We cannot dispute 'Proposed' (just cancel it) or 'Released' (funds are gone)
+        require(p.status == PurchaseStatus.Locked, "Status must be Locked");
+
+        // 3. Update Status
+        p.status = PurchaseStatus.Disputed;
+
+        emit PurchaseDisputed(purchaseId, msg.sender);
+    }
+
+    // ==========================================
+    //           VIEW / HELPER FUNCTIONS
+    // ==========================================
+
+    // 1. Pagination: Essential so we don't run out of gas returning 10,000 listings
+    function getPaginatedListings(uint256 offset, uint256 limit) external view returns (Listing[] memory result) {
+        uint256 total = listings.length;
+        if (offset >= total) return new Listing[](0);
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 resultSize = end - offset;
+        result = new Listing[](resultSize);
+
+        for (uint256 i = 0; i < resultSize; i++) {
+            result[i] = listings[offset + i];
+        }
+    }
+
+    // 2. Batch Fetch: Allows Frontend to send an array of IDs and get all Structs in 1 call
+    // Useful for showing "My Orders" or "Offers on my Listing"
+    function getBatchPurchases(uint256[] calldata purchaseIds) external view returns (Purchase[] memory batch) {
+        batch = new Purchase[](purchaseIds.length);
+        for(uint256 i=0; i < purchaseIds.length; i++) {
+            if (purchaseIds[i] < purchases.length) {
+                batch[i] = purchases[purchaseIds[i]];
+            }
+        }
+    }
+
+    // 2 --> 3 are linked should be called from F.E for "My Orders dashboard..."
+
+    // 3. Buyer Helper: Returns IDs of purchases completed/released for a specific address
+    function getBuyerPurchaseIds(address buyer) external view returns (uint256[] memory) {
+        return buyerPurchases[buyer];
+    }
+
+    // 3b. Buyer Helper: Returns IDs of purchases proposed by a specific address (offers)
+    function getBuyerProposedPurchaseIds(address buyer) external view returns (uint256[] memory) {
+        return buyerProposedPurchases[buyer];
+    }
+    
+    // 4. Seller Helper: Returns IDs of purchases (offers) on a specific listing
+    function getListingPurchaseIds(uint256 listingId) external view returns (uint256[] memory) {
+        return listingPurchases[listingId];
+    }
+
+    // Keep original for backward compatibility or simple use cases
+    function getListings() external view returns (Listing[] memory) {
+        return listings;
+    }
+
+    function getListingById(uint256 id) public view validListing(id) returns (Listing memory) {
         return listings[id];
+    }
+
+    // 5. Seller Helper: Batch fetch Listings (just like we do for Purchases)
+    // Use this with getSellerListings() to show the "My Dashboard" page
+    function getBatchListings(uint256[] calldata listingIds) external view returns (Listing[] memory batch) {
+        batch = new Listing[](listingIds.length);
+        for(uint256 i = 0; i < listingIds.length; i++) {
+            if (listingIds[i] < listings.length) {
+                batch[i] = listings[listingIds[i]];
+            }
+        }
+    }
+
+    // 6. Seller Helper: Returns listing IDs created by a seller
+    function getSellerListings(address seller) external view returns (uint256[] memory) {
+        return sellerListings[seller];
     }
 }

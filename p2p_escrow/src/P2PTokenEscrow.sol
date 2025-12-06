@@ -79,7 +79,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     // ==========================================
 
     function createListing(IERC20 token, uint256 totalAmount, uint256 pricePerToken) external returns (uint256) {
-        require(totalAmount > 0, "Amount must be > 0");
+        require(totalAmount > 0, "Amount(qty of token) must be > 0");
         require(address(token) != address(0), "Invalid token address");
 
         Listing memory l = Listing({

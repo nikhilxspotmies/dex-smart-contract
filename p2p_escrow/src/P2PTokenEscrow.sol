@@ -36,13 +36,16 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
 
     Purchase[] public purchases;
     // Mapping to track purchases received by a listing (for the seller to see)
-    mapping(uint256 => uint256[]) public listingPurchases;
+    // mapping(uint256 => uint256[]) public listingPurchases;
     
     // Mapping to track purchases that have been completed/released for a buyer ("My Orders" - completed)
     mapping(address => uint256[]) public buyerPurchases;
 
     // Mapping to track purchases proposed by a buyer (offers / proposed)
     mapping(address => uint256[]) public buyerProposedPurchases;
+
+    // MAPPING: Stores allowed tokens (True = Allowed, False = Not Allowed)
+    mapping(address => bool) public whitelistedTokens;
 
     event ListingCreated(uint256 indexed listingId, address indexed seller, address token, uint256 totalAmount, uint256 pricePerToken);
     event PurchaseProposed(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer, uint256 quantity, uint256 pricePerToken);
@@ -53,6 +56,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     event PurchaseCancelled(uint256 indexed purchaseId);
     event ListingCancelled(uint256 indexed listingId);
     event PurchaseDisputed(uint256 indexed purchaseId, address indexed disputer);
+    event TokenWhitelistUpdated(address indexed token, bool isWhitelisted);
 
     constructor() Ownable(msg.sender) {}
 
@@ -78,9 +82,21 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     //                 CORE FUNCTIONS
     // ==========================================
 
+    function setTokenWhitelist(address token, bool status) external onlyOwner {
+        require(token != address(0), "Invalid token address");
+        whitelistedTokens[token] = status;
+        emit TokenWhitelistUpdated(token, status);
+    }
+
     function createListing(IERC20 token, uint256 totalAmount, uint256 pricePerToken) external returns (uint256) {
         require(totalAmount > 0, "Amount(qty of token) must be > 0");
         require(address(token) != address(0), "Invalid token address");
+
+        // Whitelist Check
+        require(whitelistedTokens[address(token)], "Token not whitelisted by Admin");
+
+        // Check if the seller actually has the tokens in their wallet
+        require(token.balanceOf(msg.sender) >= totalAmount, "Insufficient token balance");
 
         Listing memory l = Listing({
             seller: msg.sender,
@@ -124,7 +140,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         uint256 purchaseId = purchases.length - 1;
         
         // Update Mappings
-        listingPurchases[listingId].push(purchaseId);          // For Seller: all offers on this listing
+        // listingPurchases[listingId].push(purchaseId);          // For Seller: all offers on this listing
         buyerProposedPurchases[msg.sender].push(purchaseId);   // For Buyer: proposals/offers they made
 
         emit PurchaseProposed(purchaseId, listingId, msg.sender, quantity, agreedPricePerToken);
@@ -288,9 +304,9 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     }
     
     // 4. Seller Helper: Returns IDs of purchases (offers) on a specific listing
-    function getListingPurchaseIds(uint256 listingId) external view returns (uint256[] memory) {
-        return listingPurchases[listingId];
-    }
+    // function getListingPurchaseIds(uint256 listingId) external view returns (uint256[] memory) {
+    //     return listingPurchases[listingId];
+    // }
 
     // Keep original for backward compatibility or simple use cases
     function getListings() external view returns (Listing[] memory) {

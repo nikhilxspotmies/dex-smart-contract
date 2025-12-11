@@ -1,0 +1,23 @@
+# Node.js
+node_modules
+package-lock.json
+
+# TypeScript
+dist
+
+
+# Environment variables
+.env
+
+# IDE
+.idea
+.vscode
+
+# Build
+build
+
+# Logs
+logs
+
+# Other
+.DS_Store

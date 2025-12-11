@@ -36,7 +36,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
 
     Purchase[] public purchases;
     // Mapping to track purchases received by a listing (for the seller to see)
-    // mapping(uint256 => uint256[]) public listingPurchases;
+    mapping(uint256 => uint256[]) public listingPurchases;
     
     // Mapping to track purchases that have been completed/released for a buyer ("My Orders" - completed)
     mapping(address => uint256[]) public buyerPurchases;
@@ -46,6 +46,10 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
 
     // MAPPING: Stores allowed tokens (True = Allowed, False = Not Allowed)
     mapping(address => bool) public whitelistedTokens;
+
+    // Mapping to track purchases completed/released for a seller ("My Sales" - completed)
+    mapping(address => uint256[]) public sellerCompletedPurchases;
+
 
     event ListingCreated(uint256 indexed listingId, address indexed seller, address token, uint256 totalAmount, uint256 pricePerToken);
     event PurchaseProposed(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer, uint256 quantity, uint256 pricePerToken);
@@ -140,7 +144,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         uint256 purchaseId = purchases.length - 1;
         
         // Update Mappings
-        // listingPurchases[listingId].push(purchaseId);          // For Seller: all offers on this listing
+        listingPurchases[listingId].push(purchaseId);          // For Seller: all offers on this listing
         buyerProposedPurchases[msg.sender].push(purchaseId);   // For Buyer: proposals/offers they made
 
         emit PurchaseProposed(purchaseId, listingId, msg.sender, quantity, agreedPricePerToken);
@@ -190,11 +194,15 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         // Record this as a completed purchase for the buyer
         buyerPurchases[p.buyer].push(purchaseId);
 
+        // Record this as a completed sale for the seller
+        sellerCompletedPurchases[l.seller].push(purchaseId);
+
         // Transfer tokens to buyer
         l.token.safeTransfer(p.buyer, p.quantity);
 
         emit PurchaseReleased(purchaseId, p.listingId, p.buyer, p.quantity);
     }
+
 
     function refundPurchase(uint256 purchaseId) 
         external 
@@ -304,9 +312,9 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     }
     
     // 4. Seller Helper: Returns IDs of purchases (offers) on a specific listing
-    // function getListingPurchaseIds(uint256 listingId) external view returns (uint256[] memory) {
-    //     return listingPurchases[listingId];
-    // }
+    function getListingPurchaseIds(uint256 listingId) external view returns (uint256[] memory) {
+        return listingPurchases[listingId];
+    }
 
     // Keep original for backward compatibility or simple use cases
     function getListings() external view returns (Listing[] memory) {
@@ -332,4 +340,10 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     function getSellerListings(address seller) external view returns (uint256[] memory) {
         return sellerListings[seller];
     }
+    
+    // Seller Helper: Returns IDs of purchases completed/released for a specific seller
+    function getSellerCompletedPurchaseIds(address seller) external view returns (uint256[] memory) {
+        return sellerCompletedPurchases[seller];
+    }
+
 }

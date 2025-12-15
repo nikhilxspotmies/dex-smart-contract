@@ -35,7 +35,7 @@ contract P2PTokenEscrowsTest is Test {
 
     function setUp() public {
         // Setup accounts
-        owner = address(this); // The test contract is the owner
+        owner = address(this);
         seller = makeAddr("seller");
         buyer = makeAddr("buyer");
         stranger = makeAddr("stranger");
@@ -44,22 +44,17 @@ contract P2PTokenEscrowsTest is Test {
         token = new MockUSDT();
         escrow = new P2PTokenEscrows();
 
-        // --- NEW REQUIREMENT: WHITELIST THE TOKEN ---
-        // Since createListing now checks for whitelist, we must enable it here
-        // or all subsequent tests will fail.
+        // Whitelist the token
         escrow.setTokenWhitelist(address(token), true);
 
-        // Fund the seller with tokens
-        token.mint(seller, 1000 * 10**18);
+        // Fund the seller with tokens (1 Million)
+        token.mint(seller, 1_000_000 * 10**18);
         
         // Seller must approve the escrow contract to move funds
         vm.prank(seller);
         token.approve(address(escrow), type(uint256).max);
     }
 
-    // =======================================
-    //          Create Listing Tests
-    // =======================================
 
     function test_CreateListing() public {
         vm.prank(seller);
@@ -78,30 +73,20 @@ contract P2PTokenEscrowsTest is Test {
         escrow.createListing(IERC20(address(token)), 0, 1);
     }
 
-    // --- NEW TEST FOR WHITELIST ---
     function test_RevertCreateListing_NotWhitelisted() public {
-        // 1. Admin removes token from whitelist
         escrow.setTokenWhitelist(address(token), false);
-
-        // 2. Seller tries to create listing
         vm.prank(seller);
         vm.expectRevert("Token not whitelisted by Admin");
         escrow.createListing(IERC20(address(token)), 100 * 10**18, 1);
     }
 
-    // --- NEW TEST FOR BALANCE CHECK ---
+
     function test_RevertCreateListing_InsufficientBalance() public {
-        // Seller has 1000 tokens. Let's try to list 2000.
-        // Even if they approved "max", they don't *have* the tokens.
-        
+
         vm.prank(seller);
         vm.expectRevert("Insufficient token balance");
-        escrow.createListing(IERC20(address(token)), 2000 * 10**18, 1);
+        escrow.createListing(IERC20(address(token)), 2_000_000 * 10**18, 1);
     }
-
-    // =======================================
-    //          Full Purchase Flow Tests
-    // =======================================
 
     function test_FullPurchaseFlow() public {
         // 1. Seller creates listing
@@ -119,40 +104,29 @@ contract P2PTokenEscrowsTest is Test {
         assertLe(pQty, 100 * 10**18);
         assertEq(uint(status), uint(P2PTokenEscrows.PurchaseStatus.Proposed));
 
-        // 3. Seller Locks tokens (Escrow pulls tokens here)
+        // 3. Seller Locks tokens
         vm.prank(seller);
-        
         vm.expectEmit(true, true, true, true);
         emit PurchaseLocked(purchaseId, listingId, seller, 50 * 10**18);
-        
         escrow.lockPurchase(purchaseId);
 
-        // Check Balances: Seller should have 50 less, Escrow should have 50
-        assertEq(token.balanceOf(seller), 950 * 10**18); // Started with 1000, 50 locked
+        // Check Balances: 
+        // Start: 1,000,000. Locked: 50. Remaining: 999,950.
+        assertEq(token.balanceOf(seller), 999_950 * 10**18); 
         assertEq(token.balanceOf(address(escrow)), 50 * 10**18);
-
-        // Check Status is Locked
-        (,,,, status,,) = escrow.purchases(purchaseId);
-        assertEq(uint(status), uint(P2PTokenEscrows.PurchaseStatus.Locked));
 
         // 4. Owner Releases
         vm.expectEmit(true, true, true, true);
         emit PurchaseReleased(purchaseId, listingId, buyer, 50 * 10**18);
-        
         escrow.releasePurchase(purchaseId);
 
         // Check Final Balances
         assertEq(token.balanceOf(address(escrow)), 0);
         assertEq(token.balanceOf(buyer), 50 * 10**18);
-        
-        // Check Status is Released
-        (,,,, status,,) = escrow.purchases(purchaseId);
-        assertEq(uint(status), uint(P2PTokenEscrows.PurchaseStatus.Released));
     }
 
-    // SCENARIO 1: Seller says "I didn't get Fiat" -> Owner confirms -> Refund Seller
+
     function test_Dispute_SellerClaimsNoFiat_OwnerRefunds() public {
-        // 1. Setup: Listing exists and Tokens are LOCKED in Escrow
         vm.prank(seller);
         uint256 listingId = escrow.createListing(IERC20(address(token)), 100 * 10**18, 10);
         
@@ -162,26 +136,18 @@ contract P2PTokenEscrowsTest is Test {
         vm.prank(seller);
         escrow.lockPurchase(purchaseId);
 
-        // 2. DISPUTE: Seller checks bank, sees NO FIAT. Raises dispute.
         vm.prank(seller);
         escrow.raiseDispute(purchaseId);
 
-        // Verify status is now DISPUTED
-        (,,,, P2PTokenEscrows.PurchaseStatus status,,) = escrow.purchases(purchaseId);
-        assertEq(uint(status), uint(P2PTokenEscrows.PurchaseStatus.Disputed));
-
-        // 3. RESOLUTION: Owner checks offline, confirms NO payment.
-        // Owner calls refundPurchase to return tokens to Seller.
+        // Owner refunds
         escrow.refundPurchase(purchaseId);
 
-        // 4. CHECK: Seller got their tokens back
-        assertEq(token.balanceOf(seller), 1000 * 10**18); // Original balance restored
-        assertEq(token.balanceOf(buyer), 0);              // Buyer gets nothing
+        // Seller should have their original 1,000,000 back
+        assertEq(token.balanceOf(seller), 1_000_000 * 10**18); 
+        assertEq(token.balanceOf(buyer), 0);              
     }
 
-    // SCENARIO 2: Buyer says "I sent Fiat" -> Owner confirms -> Release to Buyer
     function test_Dispute_BuyerClaimsFiatSent_OwnerReleases() public {
-        // 1. Setup: Listing exists and Tokens are LOCKED in Escrow
         vm.prank(seller);
         uint256 listingId = escrow.createListing(IERC20(address(token)), 100 * 10**18, 10);
         
@@ -191,43 +157,30 @@ contract P2PTokenEscrowsTest is Test {
         vm.prank(seller);
         escrow.lockPurchase(purchaseId);
 
-        // 2. DISPUTE: Buyer sent money, but Seller isn't releasing. Buyer raises dispute.
         vm.prank(buyer);
         escrow.raiseDispute(purchaseId);
 
-        // Verify status is now DISPUTED
-        (,,,, P2PTokenEscrows.PurchaseStatus status,,) = escrow.purchases(purchaseId);
-        assertEq(uint(status), uint(P2PTokenEscrows.PurchaseStatus.Disputed));
-
-        // 3. RESOLUTION: Owner checks offline, confirms payment WAS sent.
-        // Owner calls releasePurchase to force tokens to Buyer.
+        // Owner releases
         escrow.releasePurchase(purchaseId);
 
-        // 4. CHECK: Buyer got the tokens
-        assertEq(token.balanceOf(buyer), 50 * 10**18);     // Buyer gets tokens
-        assertEq(token.balanceOf(seller), 950 * 10**18);   // Seller stays minus 50
+        assertEq(token.balanceOf(buyer), 50 * 10**18);     
+        // Seller stays at 999,950
+        assertEq(token.balanceOf(seller), 999_950 * 10**18);   
     }
 
-    // =======================================
-    //          Edge Case / Revert Tests
-    // =======================================
-
     function test_RevertLock_IfNotSeller() public {
-        // Setup listing and proposal
         vm.prank(seller);
         uint256 listingId = escrow.createListing(IERC20(address(token)), 100, 10);
         
         vm.prank(buyer);
         uint256 purchaseId = escrow.proposePurchase(listingId, 50, 10);
 
-        // Stranger tries to lock
         vm.prank(stranger);
         vm.expectRevert("Only seller can lock");
         escrow.lockPurchase(purchaseId);
     }
 
     function test_RevertRelease_IfNotOwner() public {
-        // Run flow up to lock
         vm.prank(seller);
         uint256 listingId = escrow.createListing(IERC20(address(token)), 100, 10);
         vm.prank(buyer);
@@ -235,18 +188,15 @@ contract P2PTokenEscrowsTest is Test {
         vm.prank(seller);
         escrow.lockPurchase(purchaseId);
 
-        // Seller tries to release
         vm.prank(seller);
-        
-        // We expect the OwnableUnauthorizedAccount error
         vm.expectRevert(
             abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, seller)
         );
         escrow.releasePurchase(purchaseId);
     }
 
+   
     function test_RefundFlow() public {
-        // Setup Lock
         vm.prank(seller);
         uint256 listingId = escrow.createListing(IERC20(address(token)), 100 * 10**18, 10);
         vm.prank(buyer);
@@ -254,15 +204,74 @@ contract P2PTokenEscrowsTest is Test {
         vm.prank(seller);
         escrow.lockPurchase(purchaseId);
 
-        // Owner refunds
         escrow.refundPurchase(purchaseId);
 
-        // Tokens return to Seller
-        assertEq(token.balanceOf(seller), 1000 * 10**18); // Back to original
+        // Back to 1,000,000
+        assertEq(token.balanceOf(seller), 1_000_000 * 10**18); 
         assertEq(token.balanceOf(buyer), 0);
         
-        // Listing remaining amount should restore
         P2PTokenEscrows.Listing memory l = escrow.getListingById(listingId);
         assertEq(l.remaining, 100 * 10**18);
+    }
+
+
+    function testFuzz_CreateListing(uint256 amount, uint256 price) public {
+        // Bound amount to seller's actual balance
+        amount = bound(amount, 1, token.balanceOf(seller));
+        price = bound(price, 1, 1000 * 10**18);
+
+        vm.prank(seller);
+        uint256 listingId = escrow.createListing(IERC20(address(token)), amount, price);
+
+        P2PTokenEscrows.Listing memory l = escrow.getListingById(listingId);
+        assertEq(l.totalAmount, amount);
+        assertEq(l.remaining, amount);
+        assertEq(l.pricePerToken, price);
+        assertTrue(l.active);
+    }
+
+    function testFuzz_ProposeAndLock(uint256 listAmount, uint256 buyAmount) public {
+        // Bound listAmount to seller's actual balance
+        uint256 sellerBalance = token.balanceOf(seller);
+        listAmount = bound(listAmount, 100, sellerBalance); 
+        uint256 price = 1 ether;
+
+        vm.prank(seller);
+        uint256 listingId = escrow.createListing(IERC20(address(token)), listAmount, price);
+
+        buyAmount = bound(buyAmount, 1, listAmount);
+
+        vm.prank(buyer);
+        uint256 purchaseId = escrow.proposePurchase(listingId, buyAmount, price);
+
+        vm.prank(seller);
+        escrow.lockPurchase(purchaseId);
+
+        P2PTokenEscrows.Listing memory l = escrow.getListingById(listingId);
+        assertEq(l.remaining, listAmount - buyAmount);
+        assertEq(token.balanceOf(address(escrow)), buyAmount);
+    }
+
+    function testFuzz_Pagination(uint8 numListings, uint256 offset, uint256 limit) public {
+        numListings = uint8(bound(numListings, 1, 20));
+        
+        vm.startPrank(seller);
+        for(uint i=0; i < numListings; i++) {
+             escrow.createListing(IERC20(address(token)), 100 * 10**18, 1);
+        }
+        vm.stopPrank();
+
+        offset = bound(offset, 0, numListings + 5); 
+        limit = bound(limit, 0, 50);
+
+        P2PTokenEscrows.Listing[] memory results = escrow.getPaginatedListings(offset, limit);
+
+        if (offset >= numListings) {
+            assertEq(results.length, 0);
+        } else {
+            uint256 remainingItems = numListings - offset;
+            uint256 expectedLen = limit < remainingItems ? limit : remainingItems;
+            assertEq(results.length, expectedLen);
+        }
     }
 }

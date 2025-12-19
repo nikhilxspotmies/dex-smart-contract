@@ -47,10 +47,11 @@ io.on("connection", (socket) => {
 
     // Join Room Event (Client sends purchaseId and their address)
     socket.on("join_room", async (data) => {
+        console.log("Received join_room:", data);
         const { purchaseId, address } = data;
 
-        if (!purchaseId || !address) {
-            console.log("Invalid join_room request");
+        if (purchaseId === undefined || purchaseId === null || !address) {
+            console.log("Invalid join_room request - Missing fields");
             return;
         }
 
@@ -69,9 +70,13 @@ io.on("connection", (socket) => {
 
     // Send Message Event
     socket.on("send_message", async (data) => {
+        console.log("Received send_message:", data);
         const { purchaseId, sender, message } = data;
 
-        if (!purchaseId || !sender || !message) return;
+        if ((purchaseId === undefined || purchaseId === null) || !sender || !message) {
+            console.log("Invalid send_message request");
+            return;
+        }
 
         const room = `trade-${purchaseId}`;
 
@@ -84,9 +89,10 @@ io.on("connection", (socket) => {
                 timestamp: new Date()
             });
 
-            // Broadcast to Room (including sender so they get confirmation + ordered msg)
+            // Broadcast to Room
+            console.log(`Broadcasting to ${room}:`, savedMsg);
             io.to(room).emit("receive_message", savedMsg);
-            console.log(`Message in ${room}: ${message}`);
+            console.log(`Message broadcasted`);
 
         } catch (e) {
             console.error("Error saving message:", e);

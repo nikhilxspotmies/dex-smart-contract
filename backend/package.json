@@ -14,13 +14,18 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "ethers": "^6.16.0",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
     "socket.io": "^4.8.1",
+    "thirdweb": "^5.116.1",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

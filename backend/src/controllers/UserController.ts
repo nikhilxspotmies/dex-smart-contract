@@ -5,7 +5,7 @@ import generateToken from '../utils/generateToken.js';
 export const register = async (req: Request, res: Response) => {
     console.log("Registering user...");
     try {
-        const { UserName, email, walletAddress } = req.body;
+        const { UserName, email, walletAddress, firstName, lastName } = req.body;
 
         if (!email || !walletAddress) {
             res.status(400).json({ message: 'Email and Wallet Address are required' });
@@ -21,7 +21,9 @@ export const register = async (req: Request, res: Response) => {
         const newUser = new User({
             UserName,
             email,
-            walletAddress
+            walletAddress,
+            firstName,
+            lastName
         });
 
         await newUser.save();
@@ -31,7 +33,9 @@ export const register = async (req: Request, res: Response) => {
             user: {
                 UserName: newUser.UserName,
                 email: newUser.email,
-                walletAddress: newUser.walletAddress
+                walletAddress: newUser.walletAddress,
+                firstName: newUser.firstName,
+                lastName: newUser.lastName
             },
             token: generateToken(newUser._id.toString())
         });
@@ -60,7 +64,9 @@ export const login = async (req: Request, res: Response) => {
                 user: {
                     UserName: user.UserName,
                     email: user.email,
-                    walletAddress: user.walletAddress
+                    walletAddress: user.walletAddress,
+                    firstName: user.firstName,
+                    lastName: user.lastName
                 },
                 token: generateToken(user._id.toString())
             });
@@ -84,7 +90,9 @@ export const getUserProfile = async (req: any, res: Response) => {
         res.json({
             UserName: user.UserName,
             email: user.email,
-            walletAddress: user.walletAddress
+            walletAddress: user.walletAddress,
+            firstName: user.firstName,
+            lastName: user.lastName
         });
     } else {
         res.status(404).json({ message: 'User not found' });

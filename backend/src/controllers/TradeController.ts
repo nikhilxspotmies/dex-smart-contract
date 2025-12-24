@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import BlockchainService from '../services/BlockchainService.js';
 import Trade from '../models/Trade.js';
+import Complaint from '../models/Complaint.js';
 
 
 // problem here uniquley need to verify the crypto seller that request should not able to send by imposter..
@@ -107,6 +108,57 @@ export const getTradesByUser = async (req: Request, res: Response): Promise<void
         res.status(200).json(trades);
     } catch (error: any) {
         console.error("Get User Trades Error:", error);
+        res.status(500).json({ error: error.message || "Internal Server Error" });
+    }
+};
+
+
+export const reportNotReceived = async (req: Request, res: Response): Promise<void> => {
+    console.log("Report not received got hit...")
+    try {
+        const { purchaseId } = req.body;
+
+        if (purchaseId === undefined) {
+            res.status(400).json({ error: "purchaseId is required" });
+            return;
+        }
+
+        const trade = await Trade.findOne({ purchaseId: Number(purchaseId) });
+        if (!trade) {
+            res.status(404).json({ error: "Trade not found" });
+            return;
+        }
+
+        if (trade.status !== 'Locked') {
+            res.status(400).json({ error: "Only locked trades can be reported as not received" });
+            return;
+        }
+
+        // Verify that the requester is the seller
+        // @ts-ignore
+        const userWallet = req.user.walletAddress;
+        if (!userWallet || trade.seller.toLowerCase() !== userWallet.toLowerCase()) {
+            res.status(403).json({ error: "Not authorized to report this trade" });
+            return;
+        }
+
+        // Update status to Disputed
+        trade.status = 'Disputed';
+        await trade.save();
+
+        // Create Complaint entry
+        await Complaint.create({
+            purchaseId: Number(purchaseId),
+            reporter: userWallet,
+            reason: 'Seller reported payment not received'
+        });
+
+        console.log(`Trade ${purchaseId} reported as not received and status updated to Disputed`);
+
+        res.status(200).json({ message: "Report submitted successfully. Our team will review the case." });
+
+    } catch (error: any) {
+        console.error("Report Not Received Error:", error);
         res.status(500).json({ error: error.message || "Internal Server Error" });
     }
 };

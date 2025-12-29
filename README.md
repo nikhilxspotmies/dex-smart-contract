@@ -66,3 +66,8 @@ $ forge script script/DeployTokens.s.sol --rpc-url http://127.0.0.1:8545 --broad
   Token A deployed at: 0x0165878A594ca255338adfa4d48449f69242Eb8F
   Token B deployed at: 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853
 
+$ forge script script/DeployLimitOrder.s.sol --rpc-url http://localhost:8545 --broadcast
+
+== Logs ==
+  LimitOrderProtocol deployed at: 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6
+

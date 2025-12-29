@@ -254,6 +254,13 @@ contract Router {
     using SafeERC20 for IERC20;
 
     address public factory;
+    
+    event SwapExecuted(
+        address indexed sender,
+        address[] path,
+        uint256[] amounts,
+        address indexed to
+    );
 
     constructor(address _factory) {
         factory = _factory;
@@ -383,6 +390,8 @@ contract Router {
 
             Pair(pair).swap(amount0Out, amount1Out, recipient);
         }
+
+        emit SwapExecuted(msg.sender, path, amounts, to);
     }
 
     function removeLiquidity(

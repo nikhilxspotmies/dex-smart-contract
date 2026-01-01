@@ -9,9 +9,10 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { localhost, mainnet } from 'viem/chains';
-import { orders, OrderStatus } from '../controllers/orders.controller.js';
+import { orders, OrderStatus, lastTradedPrices, priceHistory } from '../controllers/orders.controller.js';
 import type { Order } from '../controllers/orders.controller.js';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
+import { TOKENS } from '../utils/tokenConfig.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -300,39 +301,111 @@ export class MatchingEngine {
             // Matcher needs takerAsset of the Ask
             console.log(`⏳ Filling Ask: ${ask.orderHash.slice(0, 10)}...`);
             await checkMakerAllowance(ask.maker as Address, ask.makerAsset as Address, BigInt(ask.makingAmount));
-            await checkAndApprove(ask.takerAsset as Address, BigInt(ask.takingAmount));
-            await checkBalance(ask.takerAsset as Address, BigInt(ask.takingAmount));
+            // Calculate remaining amounts
+            const bidRemainingMaking = BigInt(bid.makingAmount) - BigInt(bid.filledMakingAmount);
+            const askRemainingMaking = BigInt(ask.makingAmount) - BigInt(ask.filledMakingAmount);
+
+            // We need to calculate how much TakerAsset each order wants (remaining)
+            // For a match to happen, one side's TakingAmount must be fulfilled by the other side's MakingAmount
+
+            // bidNeedsTaker (TKA) = (bidTakingAmount * bidRemainingMaking) / bidMakingAmount
+            const bidRemainingTaking = (BigInt(bid.takingAmount) * bidRemainingMaking) / BigInt(bid.makingAmount);
+            // askNeedsTaker (TKB) = (askTakingAmount * askRemainingMaking) / askMakingAmount
+            const askRemainingTaking = (BigInt(ask.takingAmount) * askRemainingMaking) / BigInt(ask.makingAmount);
+
+            // The match amount is limited by:
+            // 1. Bid's remaining taking (TKA) vs Ask's remaining making (TKA)
+            // 2. Ask's remaining taking (TKB) vs Bid's remaining making (TKB)
+
+            // Let's use TKA as the common denominator for "match size"
+            const matchSizeTKA = bidRemainingTaking < askRemainingMaking ? bidRemainingTaking : askRemainingMaking;
+
+            if (matchSizeTKA === 0n) {
+                console.log(`   ⚠️ Match size is 0, skipping.`);
+                return;
+            }
+
+            // Calculate corresponding TKB amount
+            // Since they match, we use the price of the orders. 
+            // In a more robust system we'd handle price gaps (slippage/spread), but here we follow the order's own math.
+            const matchSizeTKB = (BigInt(bid.makingAmount) * matchSizeTKA) / BigInt(bid.takingAmount);
+
+            console.log(`   Match Size: ${matchSizeTKA} TKA <-> ${matchSizeTKB} TKB`);
+
+            // 1. Fill the Ask (Seller sells TKA, receives TKB)
+            // Contract fillOrder(order, signature, fillAmount) -> fillAmount is makerAsset (TKA)
+            console.log(`⏳ Filling Ask: ${ask.orderHash.slice(0, 10)}... (Amount: ${matchSizeTKA})`);
+            await checkMakerAllowance(ask.maker as Address, ask.makerAsset as Address, matchSizeTKA);
+            await checkAndApprove(ask.takerAsset as Address, matchSizeTKB);
+            await checkBalance(ask.takerAsset as Address, matchSizeTKB);
 
             const hash1 = await this.walletClient.writeContract({
                 address: LIMIT_ORDER_ADDRESS,
                 abi: LimitOrderProtocolABI,
                 functionName: 'fillOrder',
-                args: [askStruct, ask.signature as Hex, BigInt(ask.makingAmount)],
+                args: [askStruct, ask.signature as Hex, matchSizeTKA],
             });
-            console.log(`✅ Ask filled! TX: ${hash1}`);
+            console.log(`✅ Ask partial fill! TX: ${hash1}`);
 
-            // 2. Fill the Bid (Bot buys makerAsset from buyer using its own takerAsset)
-            // Matcher needs takerAsset of the Bid
-            console.log(`⏳ Filling Bid: ${bid.orderHash.slice(0, 10)}...`);
-            await checkMakerAllowance(bid.maker as Address, bid.makerAsset as Address, BigInt(bid.makingAmount));
-            await checkAndApprove(bid.takerAsset as Address, BigInt(bid.takingAmount));
-            await checkBalance(bid.takerAsset as Address, BigInt(bid.takingAmount));
+            // 2. Fill the Bid (Buyer buys TKA, sells TKB)
+            // Contract fillOrder(order, signature, fillAmount) -> fillAmount is makerAsset (TKB)
+            console.log(`⏳ Filling Bid: ${bid.orderHash.slice(0, 10)}... (Amount: ${matchSizeTKB})`);
+            await checkMakerAllowance(bid.maker as Address, bid.makerAsset as Address, matchSizeTKB);
+            await checkAndApprove(bid.takerAsset as Address, matchSizeTKA);
+            await checkBalance(bid.takerAsset as Address, matchSizeTKA);
 
             const hash2 = await this.walletClient.writeContract({
                 address: LIMIT_ORDER_ADDRESS,
                 abi: LimitOrderProtocolABI,
                 functionName: 'fillOrder',
-                args: [bidStruct, bid.signature as Hex, BigInt(bid.makingAmount)],
+                args: [bidStruct, bid.signature as Hex, matchSizeTKB],
             });
-            console.log(`✅ Bid filled! TX: ${hash2}`);
+            console.log(`✅ Bid partial fill! TX: ${hash2}`);
 
-            // Update state
-            bid.status = OrderStatus.FILLED;
-            ask.status = OrderStatus.FILLED;
+            // Update in-memory state
+            bid.filledMakingAmount = (BigInt(bid.filledMakingAmount) + matchSizeTKB).toString();
+            ask.filledMakingAmount = (BigInt(ask.filledMakingAmount) + matchSizeTKA).toString();
+
+            if (BigInt(bid.filledMakingAmount) >= BigInt(bid.makingAmount)) {
+                bid.status = OrderStatus.FILLED;
+            }
+            if (BigInt(ask.filledMakingAmount) >= BigInt(ask.makingAmount)) {
+                ask.status = OrderStatus.FILLED;
+            }
+
             bid.updatedAt = new Date();
             ask.updatedAt = new Date();
 
-            console.log(`✨ Match fully executed and updated in memory!`);
+            console.log(`✨ Match partial/full execution completed!`);
+            console.log(`   Bid Fill: ${bid.filledMakingAmount}/${bid.makingAmount}`);
+            console.log(`   Ask Fill: ${ask.filledMakingAmount}/${ask.makingAmount}`);
+
+            // Update lastTradedPrices
+            const askToken = TOKENS.find(t => t.address.toLowerCase() === ask.makerAsset.toLowerCase());
+            const bidToken = TOKENS.find(t => t.address.toLowerCase() === bid.makerAsset.toLowerCase());
+
+            const askSymbol = askToken ? askToken.symbol : ask.makerAsset;
+            const bidSymbol = bidToken ? bidToken.symbol : bid.makerAsset;
+
+            // Price of Ask Asset (Base) in terms of Bid Asset (Quote)
+            // Ask Asset is the one being sold by the Ask maker (MakerAsset of Ask)
+            // Bid Asset is the one being sold by the Bid maker (MakerAsset of Bid) which is the "Payment"
+            // Price = Amount(Payment) / Amount(Sold) = matchSizeTKB / matchSizeTKA
+            const price = Number(matchSizeTKB) / Number(matchSizeTKA);
+
+            const key = `${askSymbol}-${bidSymbol}`;
+            lastTradedPrices.set(key, price.toString());
+
+            // Update Price History
+            if (!priceHistory.has(key)) {
+                priceHistory.set(key, []);
+            }
+            priceHistory.get(key)?.push({
+                price: price.toString(),
+                timestamp: Date.now()
+            });
+
+            console.log(`   Updated Price for ${key}: ${price}`);
 
         } catch (error: any) {
             console.error('❌ Match execution failed:');

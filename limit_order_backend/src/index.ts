@@ -20,7 +20,7 @@ app.set('protocolAddress', process.env.LIMIT_ORDER_ADDRESS);
 app.use(cors());
 app.use(express.json());
 
-// Routes
+
 app.use('/orders', orderRoutes);
 app.use('/orderbook', orderRoutes); // Both point to the same router for simplicity or specific paths
 

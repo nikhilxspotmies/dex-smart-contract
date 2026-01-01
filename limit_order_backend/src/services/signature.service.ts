@@ -67,6 +67,38 @@ export async function verifyOrderSignature(
     }
 }
 
+export const CANCEL_ORDER_TYPES = {
+    CancelOrder: [
+        { name: 'orderHash', type: 'string' },
+    ],
+} as const;
+
+export async function verifyCancellationSignature(
+    orderHash: string,
+    signature: string,
+    signer: string,
+    chainId: number,
+    verifyingContract: string
+): Promise<boolean> {
+    try {
+        const domain = getDomain(chainId, verifyingContract);
+
+        const isValid = await verifyTypedData({
+            address: getAddress(signer),
+            domain,
+            types: CANCEL_ORDER_TYPES,
+            primaryType: 'CancelOrder',
+            message: { orderHash },
+            signature: signature as Hex,
+        });
+
+        return isValid;
+    } catch (error) {
+        console.error('Cancellation signature verification failed:', error);
+        return false;
+    }
+}
+
 export function calculateOrderHash(
     order: OrderInput,
     chainId: number,

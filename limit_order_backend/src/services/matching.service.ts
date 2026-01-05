@@ -153,13 +153,15 @@ export class MatchingEngine {
                 const sortedBids = bids.sort((a, b) => {
                     const priceA = Number(a.takingAmount) / Number(a.makingAmount);
                     const priceB = Number(b.takingAmount) / Number(b.makingAmount);
-                    return priceB - priceA;
+                    if (priceB !== priceA) return priceB - priceA;
+                    return a.createdAt.getTime() - b.createdAt.getTime();
                 });
 
                 const sortedAsks = asks.sort((a, b) => {
                     const priceA = Number(a.takingAmount) / Number(a.makingAmount);
                     const priceB = Number(b.takingAmount) / Number(b.makingAmount);
-                    return priceA - priceB;
+                    if (priceA !== priceB) return priceA - priceB;
+                    return a.createdAt.getTime() - b.createdAt.getTime();
                 });
 
                 // MATCHING
@@ -169,33 +171,17 @@ export class MatchingEngine {
                     for (const ask of sortedAsks) {
                         if (ask.status === OrderStatus.FILLED) continue;
 
-                        const bidPrice = Number(bid.takingAmount) / Number(bid.makingAmount);
-                        const askPrice = Number(ask.makingAmount) / Number(ask.takingAmount);
-                        // Careful with inverse: ask maker asset is assetB, bid taker asset is assetB
-                        // Ask: Maker gives AssetB, wants AssetA. Price = taking (A) / making (B)
-
-                        // Let's use a simpler logic:
-                        // Bid wants to buy X AssetA for Y AssetB. Price = Y/X.
-                        // Ask wants to sell X AssetA for Z AssetB. Price = Z/X.
-                        // Match if Y >= Z.
-
-                        // We need to normalize prices based on assetA as base.
-                        const bidPriceNorm = Number(bid.takingAmount) / Number(bid.makingAmount);
-                        const askPriceNorm = Number(ask.makingAmount) / Number(ask.takingAmount); // This is wrong if we want same base
-
-                        // CORRECT LOGIC:
-                        // Bid: wants AssetB, gives AssetA. (Buyer of B)
-                        // Ask: wants AssetA, gives AssetB. (Seller of B)
-                        // AssetB price in terms of AssetA:
-                        // Bid: Price = makingAmount(A) / takingAmount(B) (Willing to pay A's for B's)
-                        // Ask: Price = takingAmount(A) / makingAmount(B) (Wants A's for B's)
-                        // Match if BidPrice >= AskPrice
-
+                        // Bid Price: Quote (TKB) / Base (TKA) => bid.makingAmount / bid.takingAmount
                         const bidPriceB = Number(bid.makingAmount) / Number(bid.takingAmount);
+                        // Ask Price: Quote (TKB) / Base (TKA) => ask.takingAmount / ask.makingAmount
                         const askPriceB = Number(ask.takingAmount) / Number(ask.makingAmount);
 
                         if (bidPriceB >= askPriceB) {
-                            await this.executeMatch(bid, ask);
+                            // Determine Maker (Earliest Order) to set the execution price
+                            // If Bid is older, execute at Bid Price. If Ask is older, execute at Ask Price.
+                            const isBidMaker = bid.createdAt.getTime() <= ask.createdAt.getTime();
+
+                            await this.executeMatch(bid, ask, isBidMaker);
                             break; // One bid matched, move to next
                         }
                     }
@@ -206,9 +192,11 @@ export class MatchingEngine {
         }
     }
 
-    private async executeMatch(bid: Order, ask: Order) {
+    private async executeMatch(bid: Order, ask: Order, isBidMaker: boolean) {
         console.log(`🚀 Matching found!`);
         console.log(`   Matcher Account: ${this.account.address}`);
+        console.log(`   Execution based on ${isBidMaker ? 'Bid (Maker)' : 'Ask (Maker)'} Price`);
+
         const currentChainId = await this.publicClient.getChainId();
         console.log(`   Current Network Chain ID: ${currentChainId}`);
         console.log(`   Internal CHAIN_ID: ${CHAIN_ID}`);
@@ -326,9 +314,15 @@ export class MatchingEngine {
             }
 
             // Calculate corresponding TKB amount
-            // Since they match, we use the price of the orders. 
-            // In a more robust system we'd handle price gaps (slippage/spread), but here we follow the order's own math.
-            const matchSizeTKB = (BigInt(bid.makingAmount) * matchSizeTKA) / BigInt(bid.takingAmount);
+            // Since they match, we use the price of the MAKER order (the one that was there first).
+            let matchSizeTKB: bigint;
+            if (isBidMaker) {
+                // Use Bid Price: Price = BidQuote / BidBase = makingAmount / takingAmount
+                matchSizeTKB = (BigInt(bid.makingAmount) * matchSizeTKA) / BigInt(bid.takingAmount);
+            } else {
+                // Use Ask Price: Price = AskQuote / AskBase = takingAmount / makingAmount
+                matchSizeTKB = (BigInt(ask.takingAmount) * matchSizeTKA) / BigInt(ask.makingAmount);
+            }
 
             console.log(`   Match Size: ${matchSizeTKA} TKA <-> ${matchSizeTKB} TKB`);
 

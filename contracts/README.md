@@ -64,3 +64,6 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+
+@Perpetual.sol right now leverage is 10 percent fixed right..but leverage should be choosed by user who wants to trade?right?we should take it from user right?but we should also keeep a check that our platforms accepts this much leverage.only
+also maintanence ratio with leverage should justify when a user is in looses we liquidate his trade accordingly right

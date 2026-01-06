@@ -71,6 +71,9 @@ $ forge script script/DeployLimitOrder.s.sol --rpc-url http://localhost:8545 --b
 == Logs ==
   LimitOrderProtocol deployed at: 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6
 
+forge script script/DeployPerpetualAll.s.sol:DeployPerpetualAll --rpc-url http://localhost:8545 --broadcast
+
+forge script script/SetOraclePrice.s.sol:SetOraclePrice --rpc-url http://localhost:8545 --broadcast
 
 === sepolia setup ===
 

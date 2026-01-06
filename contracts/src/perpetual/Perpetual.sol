@@ -183,8 +183,6 @@ contract Perpetual is ReentrancyGuard {
                 // PARTIAL or FULL CLOSE
                 // PnL = (Exit - Entry) * Qty (for Long)
                 // PnL = (Entry - Exit) * Qty (for Short)
-                int256 closedSize = (pos.size > 0) ? -sizeDelta : sizeDelta; // closed portion is opposed to current size?
-                // Wait. 
                 // Long 10. Sell 2. delta = -2. 
                 // PnL logic: (Price - Entry) * 2. 
                 
@@ -299,7 +297,7 @@ contract Perpetual is ReentrancyGuard {
     function liquidate(address user, address liquidator) external onlyOperator {
         _settleFunding(user);
         
-        require(!_isMaintenanceMarginSafe(user), "Healthy"); // Function to be implemented
+        require(!_isMaintenanceMarginSafe(user), "Position healthy"); // Position must be unhealthy to liquidate
         
         Account storage acc = accounts[user];
         Position storage pos = acc.position;
@@ -424,5 +422,64 @@ contract Perpetual is ReentrancyGuard {
 
     function _abs(int256 x) internal pure returns (uint256) {
         return uint256(x >= 0 ? x : -x);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ACCOUNT SUMMARY VIEW
+    //////////////////////////////////////////////////////////////*/
+
+    struct AccountSummary {
+        int256 marginBalance;
+        int256 size;
+        uint256 entryPrice;
+        int256 unrealizedPnl;
+        int256 marginRatio;
+        uint256 leverage;
+    }
+
+    /**
+     * @notice Get complete account summary in one call for frontend efficiency
+     * @param user The account address
+     * @return summary Account summary struct with all relevant data
+     */
+    function getAccountSummary(address user) external view returns (AccountSummary memory summary) {
+        Account storage acc = accounts[user];
+        Position storage pos = acc.position;
+        
+        summary.marginBalance = acc.marginBalance;
+        summary.size = pos.size;
+        summary.entryPrice = pos.entryPrice;
+
+        if (pos.size == 0) {
+            summary.unrealizedPnl = 0;
+            summary.marginRatio = type(int256).max;
+            summary.leverage = 0;
+            return summary;
+        }
+
+        // Calculate unrealized PnL
+        uint256 markPrice = getMarkPrice();
+        int256 mark = int256(markPrice);
+        int256 priceDiff = mark - int256(pos.entryPrice);
+        summary.unrealizedPnl = (pos.size * priceDiff) / int256(ONE);
+
+        // Calculate equity
+        int256 equity = acc.marginBalance + summary.unrealizedPnl;
+
+        // Calculate margin ratio
+        uint256 notional = (_abs(pos.size) * markPrice) / ONE;
+        if (notional == 0) {
+            summary.marginRatio = type(int256).max;
+            summary.leverage = 0;
+            return summary;
+        }
+        summary.marginRatio = (equity * int256(ONE)) / int256(notional);
+
+        // Calculate leverage
+        if (equity <= 0) {
+            summary.leverage = type(uint256).max;
+        } else {
+            summary.leverage = (notional * ONE) / uint256(equity);
+        }
     }
 }

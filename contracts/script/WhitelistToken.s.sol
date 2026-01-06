@@ -23,7 +23,8 @@ contract WhitelistTokenScript is Script {
 
         // 3. Whitelist the token on the P2P contract
         // Address from user's .env: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-        address p2pAddress = 0x5FbDB2315678afecb367f032d93F642f64180aa3;
+        address p2pAddress = 0x5FbDB2315678afecb367f032d93F642f64180aa3
+;
         P2PTokenEscrows p2p = P2PTokenEscrows(p2pAddress);
         
         p2p.setTokenWhitelist(address(token), true);
@@ -32,3 +33,5 @@ contract WhitelistTokenScript is Script {
         vm.stopBroadcast();
     }
 }
+
+

@@ -48,26 +48,25 @@ export const releaseFunds = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        const trade = await Trade.findOne({ purchaseId: Number(purchaseId) });
-        if (!trade) {
-            res.status(404).json({ error: "Trade not found" });
-            return;
-        }
-
-        if (trade.status !== 'Locked' && trade.status !== 'Disputed') {
-            if (trade.status === 'Released') {
-                res.status(400).json({ error: "Trade already released" });
-                return;
-            }
-        }
-
-        // Verify that the requester is the seller (using case-insensitive check)
         // @ts-ignore
         const userWallet = req.user.walletAddress;
-        if (!userWallet || trade.seller.toLowerCase() !== userWallet.toLowerCase()) {
-            res.status(403).json({ error: "Not authorized to release this trade" });
+
+        // Find trade specifically for this seller to avoid stale data collisions
+        const trade = await Trade.findOne({
+            purchaseId: Number(purchaseId),
+            seller: { $regex: new RegExp(`^${userWallet}$`, 'i') }
+        });
+
+        if (!trade) {
+            res.status(404).json({ error: "Trade not found or you are not the authorized seller" });
             return;
         }
+
+        console.log("Checking Authorization:");
+        console.log("Trade ID:", purchaseId);
+        console.log("Trade Seller (DB):", trade.seller);
+        console.log("User Wallet (Token):", userWallet);
+        console.log("Release funds got hit3...")
 
 
         // 2. Call Blockchain Service
@@ -123,22 +122,17 @@ export const reportNotReceived = async (req: Request, res: Response): Promise<vo
             return;
         }
 
-        const trade = await Trade.findOne({ purchaseId: Number(purchaseId) });
-        if (!trade) {
-            res.status(404).json({ error: "Trade not found" });
-            return;
-        }
-
-        if (trade.status !== 'Locked') {
-            res.status(400).json({ error: "Only locked trades can be reported as not received" });
-            return;
-        }
-
-        // Verify that the requester is the seller
         // @ts-ignore
         const userWallet = req.user.walletAddress;
-        if (!userWallet || trade.seller.toLowerCase() !== userWallet.toLowerCase()) {
-            res.status(403).json({ error: "Not authorized to report this trade" });
+
+        // Find trade specifically for this seller
+        const trade = await Trade.findOne({
+            purchaseId: Number(purchaseId),
+            seller: { $regex: new RegExp(`^${userWallet}$`, 'i') }
+        });
+
+        if (!trade) {
+            res.status(404).json({ error: "Trade not found or you are not the authorized seller" });
             return;
         }
 

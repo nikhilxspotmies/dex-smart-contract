@@ -71,3 +71,37 @@ $ forge script script/DeployLimitOrder.s.sol --rpc-url http://localhost:8545 --b
 == Logs ==
   LimitOrderProtocol deployed at: 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6
 
+
+=== sepolia setup ===
+
+forge create src/P2PTokenEscrow.sol:P2PTokenEscrows --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
+
+
+Deployer: 0xE639Ae6b4A4479b23E9C2CF87CF224D387bE45a0
+Deployed to: 0x27380cE046BB2c1e79E05247aF4E0BEF7aA19be0
+Transaction hash: 0xb3abb1a394dfcd5809b1a5dc4ac4d820d9869bdaaeea943e5d7883621e2ab738
+
+$ forge script script/DeployDex.s.sol --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
+
+== Logs ==
+  Factory deployed at: 0xA996BD21712870894Ecd412960e14dc1D8796a0f
+  Router deployed at: 0xc151622E537699BC33218E60940e0e9070B9b31a
+
+
+$ forge script script/WhitelistToken.s.sol --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
+
+== Logs ==
+  Deployed Mock Token at: 0xEF470c0dC18ae7Ae29C3082f93A3afcA7f8e2e50
+  Minted 1,000,000 tokens to: 0xE639Ae6b4A4479b23E9C2CF87CF224D387bE45a0
+  Whitelisted token on P2P contract at: 0x27380cE046BB2c1e79E05247aF4E0BEF7aA19be0
+
+
+$ forge script script/DeployTokens.s.sol --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
+
+== Logs ==
+  Token A deployed at: 0xFE19EBa12e134F8334d2A4025DaF9FEB56f1A356
+  Token B deployed at: 0x6966Da4F23f1D750636642F45DB594EA3B20930e
+
+
+$ forge script script/DeployLimitOrder.s.sol --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
+

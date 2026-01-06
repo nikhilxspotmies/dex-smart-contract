@@ -121,9 +121,11 @@ class BlockchainService {
                 const price = toTokens(pricePerToken, 18);
 
                 console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
-                const exists = await Listing.findOne({ listingId: lId });
-                if (!exists) {
-                    await Listing.create({
+                console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
+
+                await Listing.findOneAndUpdate(
+                    { listingId: lId },
+                    {
                         listingId: lId,
                         seller: seller,
                         token: token,
@@ -131,9 +133,10 @@ class BlockchainService {
                         remaining: Number(amt),
                         pricePerToken: Number(price),
                         active: true
-                    });
-                    console.log(`Listing ${lId} indexed.`);
-                }
+                    },
+                    { upsert: true, new: true }
+                );
+                console.log(`Listing ${lId} indexed/updated.`);
             }
             else if (eventName === "PurchaseProposed") {
                 const { purchaseId, listingId, buyer, quantity, pricePerToken } = args;
@@ -143,11 +146,15 @@ class BlockchainService {
                 const p = toTokens(pricePerToken, 18);
 
                 console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
-                const exists = await Trade.findOne({ purchaseId: pId });
-                if (!exists) {
-                    const listing = await Listing.findOne({ listingId: lId });
-                    if (listing) {
-                        await Trade.create({
+                console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
+
+                // Always fetch the latest listing data to ensure we have the correct seller
+                const listing = await Listing.findOne({ listingId: lId });
+
+                if (listing) {
+                    await Trade.findOneAndUpdate(
+                        { purchaseId: pId },
+                        {
                             purchaseId: pId,
                             listingId: lId,
                             buyer: buyer,
@@ -155,9 +162,12 @@ class BlockchainService {
                             quantity: Number(q),
                             pricePerToken: Number(p),
                             status: 'Proposed'
-                        });
-                        console.log(`Trade ${pId} created in DB.`);
-                    }
+                        },
+                        { upsert: true, new: true }
+                    );
+                    console.log(`Trade ${pId} created/updated in DB.`);
+                } else {
+                    console.warn(`Listing ${lId} not found for Purchase ${pId}`);
                 }
             }
             else if (eventName === "PurchaseLocked") {

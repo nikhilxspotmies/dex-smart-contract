@@ -1,11 +1,12 @@
 import { getPerpetualContract } from '../utils/contract.js';
 
 /**
- * Funding Service - Handles funding rate calculations and updates
+ * Funding Service - Handles funding rate calculations and updates per market
  */
 export class FundingService {
-    private currentRate: bigint = 0n;
-    private lastUpdate: number = Date.now();
+    // Store funding rates per market: market -> rate
+    private currentRates: Map<string, bigint> = new Map();
+    private lastUpdates: Map<string, number> = new Map();
 
     /**
      * Calculate funding rate based on long/short imbalance
@@ -31,35 +32,46 @@ export class FundingService {
     }
 
     /**
-     * Update funding index on contract
+     * Update funding index on contract for a specific market
+     * @param marketSymbol - Market symbol (e.g., "ETH-PERP")
+     * @param rate - Funding rate
      */
-    async updateFundingIndex(rate: bigint): Promise<void> {
+    async updateFundingIndex(marketSymbol: string, rate: bigint): Promise<void> {
         try {
-            const contract = getPerpetualContract();
+            const contract = getPerpetualContract(marketSymbol);
             await contract.write.updateIndex([rate]);
             
-            this.currentRate = rate;
-            this.lastUpdate = Date.now();
-            console.log(`Funding rate updated: ${rate.toString()}`);
+            this.currentRates.set(marketSymbol, rate);
+            this.lastUpdates.set(marketSymbol, Date.now());
+            console.log(`Funding rate updated for ${marketSymbol}: ${rate.toString()}`);
         } catch (error) {
-            console.error('Error updating funding rate:', error);
+            console.error(`Error updating funding rate for ${marketSymbol}:`, error);
             throw error;
         }
     }
 
     /**
-     * Get current funding rate
+     * Get current funding rate for a market
+     * @param marketSymbol - Market symbol. If not provided, returns default market rate
      */
-    getCurrentRate(): bigint {
-        return this.currentRate;
+    getCurrentRate(marketSymbol?: string): bigint {
+        if (marketSymbol) {
+            return this.currentRates.get(marketSymbol) || 0n;
+        }
+        // Return first available rate (for backward compatibility)
+        const rates = Array.from(this.currentRates.values());
+        return rates.length > 0 ? rates[0] : 0n;
     }
 
     /**
      * Periodic funding update (should be called every 8 hours)
+     * @param marketSymbol - Market symbol
+     * @param longSize - Total long position size
+     * @param shortSize - Total short position size
      */
-    async performPeriodicUpdate(longSize: bigint, shortSize: bigint): Promise<void> {
+    async performPeriodicUpdate(marketSymbol: string, longSize: bigint, shortSize: bigint): Promise<void> {
         const newRate = this.calculateFundingRate(longSize, shortSize);
-        await this.updateFundingIndex(newRate);
+        await this.updateFundingIndex(marketSymbol, newRate);
     }
 }
 

@@ -1,10 +1,12 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { type Address } from 'viem';
 import { PerpetualService } from '../services/perpetual.service.js';
 import { OracleService } from '../services/oracle.service.js';
 import { FundingService } from '../services/funding.service.js';
 import { PositionService } from '../services/position.service.js';
 import type { OrderRequest } from '../models/order.model.js';
+import { getAllMarkets } from '../utils/markets.js';
+import { getMarketConfig } from '../utils/contract.js';
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
@@ -16,10 +18,9 @@ const oracleService = new OracleService();
 const fundingService = new FundingService();
 const positionService = new PositionService(oracleService);
 
-const INDEX_TOKEN = process.env.INDEX_TOKEN_ADDRESS as Address;
-
 // Validation schemas
 const orderSchema = z.object({
+    market: z.string().optional(), // Market symbol (e.g., "ETH-PERP")
     side: z.enum(['long', 'short']),
     type: z.enum(['market', 'limit']),
     size: z.string().min(1),
@@ -28,12 +29,80 @@ const orderSchema = z.object({
 });
 
 const priceSchema = z.object({
+    market: z.string().optional(), // Market symbol
     price: z.string().min(1),
 });
 
 const fundingRateSchema = z.object({
+    market: z.string().optional(), // Market symbol
     rate: z.string().optional(), // Optional: if not provided, will calculate
 });
+
+/**
+ * Get all available markets
+ */
+export async function getMarkets(req: Request, res: Response) {
+    try {
+        const markets = getAllMarkets();
+        res.json({ markets });
+    } catch (error: any) {
+        console.error('Error fetching markets:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch markets' });
+    }
+}
+
+/**
+ * Get orderbook for a market (pending limit orders)
+ * GET /orderbook/:market or GET /orderbook (uses default market)
+ */
+export async function getOrderbook(req: Request, res: Response) {
+    try {
+        const marketSymbol = req.params.market || req.query.market as string || getMarketConfig().symbol;
+        
+        const orderbook = perpetualService.getOrderbook(marketSymbol);
+        
+        // Format orders for frontend (convert bigint to strings)
+        const formatOrders = (orders: any[]) => {
+            return orders.map(order => ({
+                id: order.id,
+                price: order.price?.toString() || '0',
+                size: order.size.toString(),
+                side: order.side,
+                timestamp: order.timestamp,
+            }));
+        };
+
+        // Calculate cumulative totals for orderbook display
+        let bidTotal = 0n;
+        const bids = formatOrders(orderbook.bids).map(order => {
+            const size = BigInt(order.size);
+            bidTotal += size < 0n ? -size : size;
+            return {
+                ...order,
+                total: bidTotal.toString(),
+            };
+        });
+
+        let askTotal = 0n;
+        const asks = formatOrders(orderbook.asks).map(order => {
+            const size = BigInt(order.size);
+            askTotal += size < 0n ? -size : size;
+            return {
+                ...order,
+                total: askTotal.toString(),
+            };
+        });
+
+        res.json({
+            market: marketSymbol,
+            bids,
+            asks,
+        });
+    } catch (error: any) {
+        console.error('Error fetching orderbook:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch orderbook' });
+    }
+}
 
 /**
  * Submit a new order
@@ -47,6 +116,7 @@ export async function submitOrder(req: Request, res: Response) {
 
         const validated = orderSchema.parse(req.body);
         const orderRequest: OrderRequest = {
+            market: validated.market, // Optional, will use default if not provided
             side: validated.side,
             type: validated.type,
             size: validated.size,
@@ -63,18 +133,21 @@ export async function submitOrder(req: Request, res: Response) {
 }
 
 /**
- * Get user positions
+ * Get user position for a specific market
+ * GET /positions/:address/:market or GET /positions/:address (uses default market)
  */
 export async function getPositions(req: Request, res: Response) {
     try {
         const user = req.params.address as Address;
+        const marketSymbol = req.params.market || req.query.market as string;
+        
         if (!user) {
             return res.status(400).json({ error: 'User address required' });
         }
 
-        const summary = await positionService.getPositionSummary(user);
+        const summary = await positionService.getPositionSummary(user, marketSymbol);
         if (!summary) {
-            return res.json({ position: null });
+            return res.json({ position: null, market: marketSymbol || 'default' });
         }
 
         res.json({ position: summary });
@@ -85,13 +158,22 @@ export async function getPositions(req: Request, res: Response) {
 }
 
 /**
- * Get current mark price
+ * Get current mark price for a market
+ * GET /mark-price/:market or GET /mark-price (uses default market)
  */
 export async function getMarkPrice(req: Request, res: Response) {
     try {
-        const price = await oracleService.getPrice(INDEX_TOKEN);
+        const marketSymbol = req.params.market || req.query.market as string;
+        const market = getMarketConfig(marketSymbol);
+        
+        const price = await oracleService.getPrice(market.indexToken);
         const priceFormatted = (Number(price) / 1e18).toFixed(2);
-        res.json({ price: price.toString(), priceFormatted });
+        res.json({ 
+            price: price.toString(), 
+            priceFormatted,
+            market: market.symbol,
+            token: market.indexToken
+        });
     } catch (error: any) {
         console.error('Error fetching mark price:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch mark price' });
@@ -99,13 +181,21 @@ export async function getMarkPrice(req: Request, res: Response) {
 }
 
 /**
- * Get current funding rate
+ * Get current funding rate for a market
+ * GET /funding-rate/:market or GET /funding-rate (uses default market)
  */
 export async function getFundingRate(req: Request, res: Response) {
     try {
-        const rate = fundingService.getCurrentRate();
+        const marketSymbol = req.params.market || req.query.market as string;
+        const market = getMarketConfig(marketSymbol);
+        
+        const rate = fundingService.getCurrentRate(market.symbol);
         const rateFormatted = (Number(rate) / 1e18 * 100).toFixed(6); // As percentage
-        res.json({ rate: rate.toString(), rateFormatted: `${rateFormatted}%` });
+        res.json({ 
+            rate: rate.toString(), 
+            rateFormatted: `${rateFormatted}%`,
+            market: market.symbol
+        });
     } catch (error: any) {
         console.error('Error fetching funding rate:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch funding rate' });
@@ -142,23 +232,26 @@ export async function withdraw(req: Request, res: Response) {
 }
 
 /**
- * Close position
+ * Close position for a specific market
  */
 export async function closePosition(req: Request, res: Response) {
     try {
         const user = req.body.user as Address;
+        const marketSymbol = req.body.market as string;
+        
         if (!user) {
             return res.status(400).json({ error: 'User address required' });
         }
 
-        // Submit a market order to close position
-        const position = await positionService.getPosition(user);
+        // Get position for the specified market (or default)
+        const position = await positionService.getPosition(user, marketSymbol);
         if (!position || position.size === 0n) {
             return res.status(400).json({ error: 'No open position to close' });
         }
 
         const closeSize = -position.size; // Opposite of current size
         const orderRequest: OrderRequest = {
+            market: position.market, // Use the market from the position
             side: position.size > 0n ? 'short' : 'long',
             type: 'market',
             size: (closeSize < 0n ? -closeSize : closeSize).toString(),
@@ -166,7 +259,7 @@ export async function closePosition(req: Request, res: Response) {
         };
 
         const orderId = await perpetualService.submitOrder(user, orderRequest);
-        res.json({ orderId, status: 'submitted' });
+        res.json({ orderId, status: 'submitted', market: position.market });
     } catch (error: any) {
         console.error('Error closing position:', error);
         res.status(400).json({ error: error.message || 'Failed to close position' });
@@ -174,16 +267,23 @@ export async function closePosition(req: Request, res: Response) {
 }
 
 /**
- * Admin: Set oracle price
+ * Admin: Set oracle price for a market
  */
 export async function adminSetPrice(req: Request, res: Response) {
     try {
         // TODO: Add admin authentication
         const validated = priceSchema.parse(req.body);
+        const marketSymbol = validated.market;
+        const market = getMarketConfig(marketSymbol);
         const priceInWei = BigInt(Math.floor(parseFloat(validated.price) * 1e18));
         
-        await oracleService.setPrice(INDEX_TOKEN, priceInWei);
-        res.json({ success: true, price: priceInWei.toString() });
+        await oracleService.setPrice(market.indexToken, priceInWei);
+        res.json({ 
+            success: true, 
+            price: priceInWei.toString(),
+            market: market.symbol,
+            token: market.indexToken
+        });
     } catch (error: any) {
         console.error('Error setting price:', error);
         res.status(500).json({ error: error.message || 'Failed to set price' });
@@ -191,12 +291,14 @@ export async function adminSetPrice(req: Request, res: Response) {
 }
 
 /**
- * Admin: Update funding rate
+ * Admin: Update funding rate for a market
  */
 export async function adminUpdateFunding(req: Request, res: Response) {
     try {
         // TODO: Add admin authentication
         const validated = fundingRateSchema.parse(req.body);
+        const marketSymbol = validated.market;
+        const market = getMarketConfig(marketSymbol);
         
         let rate: bigint;
         if (validated.rate) {
@@ -206,8 +308,12 @@ export async function adminUpdateFunding(req: Request, res: Response) {
             rate = fundingService.calculateFundingRate(0n, 0n);
         }
         
-        await fundingService.updateFundingIndex(rate);
-        res.json({ success: true, rate: rate.toString() });
+        await fundingService.updateFundingIndex(market.symbol, rate);
+        res.json({ 
+            success: true, 
+            rate: rate.toString(),
+            market: market.symbol
+        });
     } catch (error: any) {
         console.error('Error updating funding rate:', error);
         res.status(500).json({ error: error.message || 'Failed to update funding rate' });

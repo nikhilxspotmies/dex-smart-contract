@@ -4,6 +4,7 @@
 
 export interface Position {
     user: string;
+    market: string; // Market symbol (e.g., "ETH-PERP")
     size: bigint; // Signed: + for long, - for short (1e18)
     entryPrice: bigint; // 1e18
     marginBalance: bigint; // 1e18 (can be negative)
@@ -17,6 +18,7 @@ export interface Position {
 
 export interface PositionSummary {
     user: string;
+    market: string; // Market symbol (e.g., "ETH-PERP")
     size: string; // Human readable
     entryPrice: string; // Human readable
     markPrice: string; // Human readable

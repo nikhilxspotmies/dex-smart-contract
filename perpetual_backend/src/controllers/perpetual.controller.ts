@@ -6,7 +6,7 @@ import { FundingService } from '../services/funding.service.js';
 import { PositionService } from '../services/position.service.js';
 import type { OrderRequest } from '../models/order.model.js';
 import { getAllMarkets } from '../utils/markets.js';
-import { getMarketConfig } from '../utils/contract.js';
+import { getMarketConfig, getPerpetualContract, getOracleContract, publicClient } from '../utils/contract.js';
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
@@ -62,14 +62,19 @@ export async function getOrderbook(req: Request, res: Response) {
         const orderbook = perpetualService.getOrderbook(marketSymbol);
         
         // Format orders for frontend (convert bigint to strings)
+        // Size is signed internally but we send absolute value for display
         const formatOrders = (orders: any[]) => {
-            return orders.map(order => ({
-                id: order.id,
-                price: order.price?.toString() || '0',
-                size: order.size.toString(),
-                side: order.side,
-                timestamp: order.timestamp,
-            }));
+            return orders.map(order => {
+                const rawSize = BigInt(order.size?.toString() || '0');
+                const absSize = rawSize < 0n ? -rawSize : rawSize;
+                return {
+                    id: order.id,
+                    price: order.price?.toString() || '0',
+                    size: absSize.toString(), // Send absolute value for display
+                    side: order.side,
+                    timestamp: order.timestamp,
+                };
+            });
         };
 
         // Calculate cumulative totals for orderbook display
@@ -232,7 +237,9 @@ export async function withdraw(req: Request, res: Response) {
 }
 
 /**
- * Close position for a specific market
+ * Close position - Execute immediately at mark price (oracle price)
+ * This ensures PnL is realized immediately without waiting for a counterparty
+ * Optionally uses System LP as counterparty for proper settlement
  */
 export async function closePosition(req: Request, res: Response) {
     try {
@@ -249,20 +256,120 @@ export async function closePosition(req: Request, res: Response) {
             return res.status(400).json({ error: 'No open position to close' });
         }
 
-        const closeSize = -position.size; // Opposite of current size
-        const orderRequest: OrderRequest = {
-            market: position.market, // Use the market from the position
-            side: position.size > 0n ? 'short' : 'long',
-            type: 'market',
-            size: (closeSize < 0n ? -closeSize : closeSize).toString(),
-            leverage: 1, // Not used for closing
-        };
+        // Get current mark price (oracle price) - this is the fair price for closing
+        const market = getMarketConfig(marketSymbol || position.market);
+        const oracleContract = getOracleContract();
+        const markPrice = await oracleContract.read.getPrice([market.indexToken]);
 
-        const orderId = await perpetualService.submitOrder(user, orderRequest);
-        res.json({ orderId, status: 'submitted', market: position.market });
+        // Calculate the size to close (opposite of current position)
+        // If long +100, close with -100 (selling)
+        const closeSize = -position.size;
+
+        console.log(`[ClosePosition] Closing position for ${user}:`);
+        console.log(`  - Market: ${market.symbol}`);
+        console.log(`  - Current position size: ${position.size}`);
+        console.log(`  - Entry price: ${position.entryPrice}`);
+        console.log(`  - Close size: ${closeSize}`);
+        console.log(`  - Closing at mark price: ${markPrice} (this will be used for PnL calculation)`);
+
+        // IMPORTANT: Execute the trade directly at mark price
+        // This settles the position immediately and realizes PnL
+        // PnL = (Mark Price - Entry Price) × Size for long positions
+        const contract = getPerpetualContract(market.symbol);
+        
+        // Optional: Execute System LP as counterparty for proper settlement
+        const USE_SYNTHETIC_LP = process.env.USE_SYNTHETIC_LP === 'true';
+        const SYSTEM_LP_ADDRESS = process.env.SYSTEM_LP_ADDRESS as Address | undefined;
+
+        if (USE_SYNTHETIC_LP && SYSTEM_LP_ADDRESS) {
+            // Execute trade for System LP as counterparty (opposite side)
+            const systemLpTradeSize = -closeSize; // Opposite side
+            console.log(`[ClosePosition] Using System LP as counterparty: ${SYSTEM_LP_ADDRESS}`);
+            console.log(`[ClosePosition] System LP trade size: ${systemLpTradeSize}`);
+            
+            try {
+                // Execute System LP trade first (takes the opposite position)
+                const systemLpTxHash = await contract.write.trade([SYSTEM_LP_ADDRESS, systemLpTradeSize, markPrice]);
+                console.log(`[ClosePosition] System LP trade transaction: ${systemLpTxHash}`);
+                
+                // Wait for System LP transaction to confirm
+                const systemLpReceipt = await publicClient.waitForTransactionReceipt({ hash: systemLpTxHash });
+                if (systemLpReceipt.status === 'reverted') {
+                    throw new Error('System LP trade transaction reverted');
+                }
+                console.log(`[ClosePosition] System LP trade confirmed in block ${systemLpReceipt.blockNumber}`);
+            } catch (systemLpError: any) {
+                console.error('[ClosePosition] System LP trade failed:', systemLpError);
+                // Continue with user trade even if System LP fails (might work if contract has liquidity)
+                console.log('[ClosePosition] Continuing with user trade despite System LP failure');
+            }
+        }
+        
+        // Execute the trade on-chain for the user - this will calculate and add realized PnL to margin balance
+        const txHash = await contract.write.trade([user, closeSize, markPrice]);
+        
+        console.log(`[ClosePosition] User trade transaction submitted: ${txHash}`);
+
+        // Wait for transaction confirmation
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        
+        if (receipt.status === 'reverted') {
+            // Try to get revert reason if available
+            let errorMessage = 'Transaction reverted: Position close failed.';
+            try {
+                // Attempt to get revert reason (this might not always work)
+                errorMessage = 'Transaction reverted: Position close failed. Check contract requirements and System LP balance.';
+            } catch {
+                // Use default message
+            }
+            throw new Error(errorMessage);
+        }
+
+        console.log(`[ClosePosition] Position closed successfully:`);
+        console.log(`  - Transaction: ${txHash}`);
+        console.log(`  - Block: ${receipt.blockNumber}`);
+        console.log(`  - Mark price used: ${markPrice}`);
+        console.log(`  - PnL has been realized and added to margin balance`);
+
+        // Get updated position to verify it's closed
+        const updatedPosition = await positionService.getPosition(user, marketSymbol || position.market);
+        const positionClosed = !updatedPosition || updatedPosition.size === 0n;
+
+        res.json({ 
+            success: true,
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            closedSize: closeSize.toString(),
+            closePrice: markPrice.toString(), // Mark price used for settlement
+            entryPrice: position.entryPrice.toString(),
+            market: position.market,
+            positionClosed,
+            message: 'Position closed successfully. PnL has been realized and added to your margin balance.'
+        });
     } catch (error: any) {
-        console.error('Error closing position:', error);
-        res.status(400).json({ error: error.message || 'Failed to close position' });
+        console.error('[ClosePosition] Error closing position:', error);
+        
+        // Provide more detailed error messages
+        let errorMessage = error.message || 'Failed to close position';
+        let statusCode = 400;
+        
+        // Handle specific error cases
+        if (errorMessage.includes('reverted')) {
+            errorMessage = 'Transaction reverted. This may be due to: insufficient margin, contract constraints, or System LP balance issues.';
+            statusCode = 400;
+        } else if (errorMessage.includes('No open position')) {
+            errorMessage = 'No open position found to close.';
+            statusCode = 404;
+        } else if (errorMessage.includes('User address required')) {
+            errorMessage = 'User address is required to close position.';
+            statusCode = 400;
+        }
+        
+        res.status(statusCode).json({ 
+            error: errorMessage,
+            details: error.details || undefined,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 }
 

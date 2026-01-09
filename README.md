@@ -73,6 +73,43 @@ $ forge script script/DeployLimitOrder.s.sol --rpc-url http://localhost:8545 --b
 
 forge script script/DeployPerpetualAll.s.sol:DeployPerpetualAll --rpc-url http://localhost:8545 --broadcast
 
+== Logs ==
+
+=== Step 1: Deploying MockOracle ===
+  MockOracle deployed at: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  Owner: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+
+=== Step 2: Using existing IndexToken ===
+  IndexToken address: 0x0165878A594ca255338adfa4d48449f69242Eb8F
+
+=== Step 3: Setting initial price in oracle ===
+  Price set for token: 0x0165878A594ca255338adfa4d48449f69242Eb8F
+  Price: 2000 USD
+  Verified price from oracle: 2000000000000000000000
+
+=== Step 4: Deploying Perpetual ===
+  Perpetual deployed at: 0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e
+
+=== Deployment Summary ===
+  MockOracle: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  USDC (mock token): 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+  IndexToken: 0x0165878A594ca255338adfa4d48449f69242Eb8F
+  Perpetual: 0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e
+  Operator: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Initial Price: 2000 USD
+
+=== Next Steps ===
+  1. Update your backend .env with:
+     PERPETUAL_CONTRACT_ADDRESS= 0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e
+     MOCK_ORACLE_ADDRESS= 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+     INDEX_TOKEN_ADDRESS= 0x0165878A594ca255338adfa4d48449f69242Eb8F
+     USDC_ADDRESS= 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+
+2. Update your frontend .env with:
+     VITE_PERPETUAL_CONTRACT_ADDRESS= 0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e
+     VITE_USDC_ADDRESS= 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+     VITE_INDEX_TOKEN_ADDRESS= 0x0165878A594ca255338adfa4d48449f69242Eb8F
+
 forge script script/SetOraclePrice.s.sol:SetOraclePrice --rpc-url http://localhost:8545 --broadcast
 
 === sepolia setup ===

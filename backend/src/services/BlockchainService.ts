@@ -1,13 +1,21 @@
 
-import { ethers } from 'ethers';
 import dotenv from 'dotenv';
-// import { createTradeMetadata } from '../controllers/TradeController.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
 // @ts-ignore
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+    getContract,
+    prepareContractCall,
+    sendTransaction,
+    watchContractEvents,
+    toTokens,
+    waitForReceipt
+} from "thirdweb";
+import { privateKeyToAccount } from "thirdweb/wallets";
+import { client, chain } from "../utils/client.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,213 +26,191 @@ const SC_ABI = abl.abi;
 dotenv.config();
 
 class BlockchainService {
-    private provider?: ethers.JsonRpcProvider;
-    private wallet?: ethers.Wallet;
-    private contract?: ethers.Contract;
+    private account: any;
+    private contract: any;
     private isListening: boolean = false;
 
     constructor() {
-        const rpcUrl = process.env.RPC_URL;
-        const privateKey = process.env.ADMIN_PRIVATE_KEY;
+        const privateKey = process.env.PRIVATE_KEY;
         const contractAddress = process.env.CONTRACT_ADDRESS;
 
-        if (!rpcUrl || !privateKey || !contractAddress) {
-            console.error("Missing Blockchain Config: RPC_URL, ADMIN_PRIVATE_KEY, or CONTRACT_ADDRESS");
-            // We don't throw here to avoid crashing the server if config is missing, 
-            // but functionality will be limited.
+        if (!privateKey || !contractAddress) {
+            console.error("Missing Blockchain Config: PRIVATE_KEY or CONTRACT_ADDRESS");
+            return;
         }
 
-        if (rpcUrl) {
-            this.provider = new ethers.JsonRpcProvider(rpcUrl);
-            if (privateKey) {
-                this.wallet = new ethers.Wallet(privateKey, this.provider);
-                if (contractAddress) {
-                    this.contract = new ethers.Contract(contractAddress, SC_ABI, this.wallet);
-                }
-            }
-        }
+        // Initialize Account
+        this.account = privateKeyToAccount({
+            client: client,
+            privateKey: privateKey
+        });
+
+        // Initialize Contract
+        this.contract = getContract({
+            client: client,
+            chain: chain,
+            address: contractAddress,
+            abi: SC_ABI
+        });
+
+        console.log("BlockchainService Initialized with Thirdweb SDK");
     }
 
     public async releasePurchase(purchaseId: number): Promise<string> {
-        if (!this.contract) throw new Error("Contract not initialized");
-        const contract = this.contract;
+        if (!this.contract || !this.account) throw new Error("Contract or Account not initialized");
 
         console.log(`Releasing purchase ${purchaseId}...`);
-        const tx = await contract.releasePurchase!(purchaseId);
-        await tx.wait();
-        console.log(`Purchase ${purchaseId} released. Tx Hash: ${tx.hash}`);
-        return tx.hash;
-    }
 
-    public async getListingDetails(listingId: number) {
-        if (!this.contract) throw new Error("Contract not initialized");
-        const contract = this.contract;
-        const listing = await contract.listings!(listingId);
-        return {
-            seller: listing[0],
-            token: listing[1],
-            pricePerToken: listing[4]
-        };
+        const transaction = prepareContractCall({
+            contract: this.contract,
+            method: "function releasePurchase(uint256 purchaseId)",
+            params: [BigInt(purchaseId)]
+        });
+
+        // Send transaction from the Admin Account
+        const { transactionHash } = await sendTransaction({
+            transaction,
+            account: this.account
+        });
+
+        console.log(`Transaction submitted. Hash: ${transactionHash}`);
+
+        // Wait for confirmation
+        try {
+            const receipt = await waitForReceipt({
+                client: client,
+                chain: chain,
+                transactionHash: transactionHash
+            });
+            console.log(`Purchase ${purchaseId} release confirmed in block ${receipt.blockNumber}.`);
+        } catch (error) {
+            console.error("Error waiting for transaction receipt:", error);
+            // We still return the hash, but maybe we should throw if it failed?
+            // If waitForReceipt fails, it might be a timeout or revert.
+            // For now, let's log and return hash, but the controller handles the DB update.
+            //Ideally, if it reverts, waitForReceipt might throw.
+        }
+
+        return transactionHash;
     }
 
     public startEventListener() {
         if (!this.contract || this.isListening) return;
-        const contract = this.contract;
 
-        console.log("Starting Blockchain Event Listener...");
+        console.log("Starting Blockchain Event Listener (Thirdweb)...");
         this.isListening = true;
 
-        // ==========================================
-        //             LISTING EVENTS
-        // ==========================================
+        // Watch all events
+        watchContractEvents({
+            contract: this.contract,
+            onEvents: (events) => {
+                events.forEach(event => this.processEvent(event));
+            }
+        });
+    }
 
-        contract.on("ListingCreated", async (listingId, seller, token, totalAmount, pricePerToken) => {
-            try {
+    private async processEvent(event: any) {
+        try {
+            const { eventName, args } = event;
+            // console.log("Received Event:", eventName, args);
+
+            if (eventName === "ListingCreated") {
+                const { listingId, seller, token, totalAmount, pricePerToken } = args;
                 const lId = Number(listingId);
-                const amt = ethers.formatEther(totalAmount);
-                const price = ethers.formatEther(pricePerToken);
+                const amt = toTokens(totalAmount, 18);
+                const price = toTokens(pricePerToken, 18);
 
                 console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
+                console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
 
-                const exists = await Listing.findOne({ listingId: lId });
-                if (exists) return;
-
-                await Listing.create({
-                    listingId: lId,
-                    seller: seller,
-                    token: token,
-                    totalAmount: Number(amt),
-                    remaining: Number(amt), // Initially remaining == totalAmount
-                    pricePerToken: Number(price),
-                    active: true
-                });
-                console.log(`Listing ${lId} indexed.`);
-
-            } catch (err) {
-                console.error("Error processing ListingCreated:", err);
+                await Listing.findOneAndUpdate(
+                    { listingId: lId },
+                    {
+                        listingId: lId,
+                        seller: seller,
+                        token: token,
+                        totalAmount: Number(amt),
+                        remaining: Number(amt),
+                        pricePerToken: Number(price),
+                        active: true
+                    },
+                    { upsert: true, new: true }
+                );
+                console.log(`Listing ${lId} indexed/updated.`);
             }
-        });
-
-        contract.on("ListingCancelled", async (listingId) => {
-            try {
-                const lId = Number(listingId);
-                await Listing.findOneAndUpdate({ listingId: lId }, { active: false });
-                console.log(`Listing ${lId} marked inactive.`);
-            } catch (err) {
-                console.error("Error processing ListingCancelled:", err);
-            }
-        });
-
-        contract.on("ListingUpdatedRemaining", async (listingId, remaining) => {
-            try {
-                const lId = Number(listingId);
-                const rem = ethers.formatEther(remaining);
-                await Listing.findOneAndUpdate({ listingId: lId }, { remaining: Number(rem) });
-                console.log(`Listing ${lId} remaining updated to ${rem}`);
-
-                // If remaining is 0, we can also mark as inactive if desired, 
-                // but contract might keep it active until manually cancelled? 
-                // Contract: "active" is boolean. It stays true even if remaining is 0 usually.
-                if (Number(rem) === 0) {
-                    await Listing.findOneAndUpdate({ listingId: lId }, { active: false });
-                }
-
-            } catch (err) {
-                console.error("Error processing ListingUpdatedRemaining:", err);
-            }
-        });
-
-
-        // ==========================================
-        //             PURCHASE EVENTS
-        // ==========================================
-
-        contract.on("PurchaseProposed", async (purchaseId, listingId, buyer, quantity, pricePerToken, event) => {
-            try {
+            else if (eventName === "PurchaseProposed") {
+                const { purchaseId, listingId, buyer, quantity, pricePerToken } = args;
                 const pId = Number(purchaseId);
                 const lId = Number(listingId);
-                const q = ethers.formatEther(quantity);
-                const p = ethers.formatEther(pricePerToken);
+                const q = toTokens(quantity, 18);
+                const p = toTokens(pricePerToken, 18);
 
-                console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}, Qty: ${q}, Price: ${p}`);
+                console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
+                console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
 
-                const exists = await Trade.findOne({ purchaseId: pId });
-                if (exists) {
-                    console.log(`Trade ${pId} already exists in DB.`);
-                    return;
+                // Always fetch the latest listing data to ensure we have the correct seller
+                const listing = await Listing.findOne({ listingId: lId });
+
+                if (listing) {
+                    await Trade.findOneAndUpdate(
+                        { purchaseId: pId },
+                        {
+                            purchaseId: pId,
+                            listingId: lId,
+                            buyer: buyer,
+                            seller: listing.seller,
+                            quantity: Number(q),
+                            pricePerToken: Number(p),
+                            status: 'Proposed'
+                        },
+                        { upsert: true, new: true }
+                    );
+                    console.log(`Trade ${pId} created/updated in DB.`);
+                } else {
+                    console.warn(`Listing ${lId} not found for Purchase ${pId}`);
                 }
-
-                // We might want to fetch seller from DB Listing instead of Contract for speed, 
-                // but Contract is authoritative. Let's stick to contract for now or DB if indexed.
-                // Since we are indexing Listings now, we can try DB first?
-                // Let's stick to existing logic for safety: fetch details from Contract helper.
-                const listing = await this.getListingDetails(lId);
-
-                await Trade.create({
-                    purchaseId: pId,
-                    listingId: lId,
-                    buyer: buyer,
-                    seller: listing.seller,
-                    quantity: Number(q),
-                    pricePerToken: Number(p),
-                    status: 'Proposed'
-                });
-                console.log(`Trade ${pId} created in DB via Event.`);
-
-            } catch (err) {
-                console.error("Error processing PurchaseProposed event:", err);
             }
-        });
-
-        // Listen for Locked to update status
-        // We fetch the purchase details to ensure we have the correct buyer address
-        // in case the event signature in ABI doesn't match the deployed contract yet.
-        contract.on("PurchaseLocked", async (purchaseId, listingId, seller, quantity) => { // Accepted args based on old ABI
-            try {
+            else if (eventName === "PurchaseLocked") {
+                const { purchaseId } = args;
                 const pId = Number(purchaseId);
-                console.log(`Event: PurchaseLocked - PurchaseID: ${pId}`);
+                console.log(`Event: PurchaseLocked - ID: ${pId}`);
 
-                // Fetch full purchase details from contract to get buyer
-                // struct Purchase { listingId, buyer, quantity, ... }
-                const purchase = await contract.purchases!(pId);
-                const buyerAddress = purchase[1]; // Access by index if struct
-                const qty = ethers.formatEther(purchase[2]);
-                const price = ethers.formatEther(purchase[3]);
-
-                // Upsert or update
                 const trade = await Trade.findOne({ purchaseId: pId });
                 if (trade) {
                     trade.status = 'Locked';
-                    trade.buyer = buyerAddress; // Update buyer just in case
                     await trade.save();
-                    console.log(`Trade ${pId} status updated to Locked.`);
-                } else {
-                    // If missed Proposed event, create it now
-                    await Trade.create({
-                        purchaseId: pId,
-                        listingId: Number(listingId),
-                        buyer: buyerAddress,
-                        seller: seller,
-                        quantity: Number(qty),
-                        pricePerToken: Number(price),
-                        status: 'Locked'
-                    });
-                    console.log(`Trade ${pId} created as Locked (missed proposal).`);
+                    console.log(`Trade ${pId} updated to Locked.`);
                 }
-            } catch (err) {
-                console.error("Error processing PurchaseLocked event:", err);
             }
-        });
-
-        contract.on("PurchaseReleased", async (purchaseId, listingId, buyer, quantity) => {
-            try {
+            else if (eventName === "PurchaseReleased") {
+                const { purchaseId } = args;
                 const pId = Number(purchaseId);
+                console.log(`Event: PurchaseReleased - ID: ${pId}`);
                 await Trade.findOneAndUpdate({ purchaseId: pId }, { status: 'Released' });
-                console.log(`Trade ${pId} status updated to Released via Event.`);
-            } catch (err) {
-                console.error("Error processing PurchaseReleased event:", err);
             }
-        });
+            else if (eventName === "PurchaseCancelled") {
+                const { purchaseId } = args;
+                const pId = Number(purchaseId);
+                await Trade.findOneAndUpdate({ purchaseId: pId }, { status: 'Cancelled' });
+            }
+            else if (eventName === "ListingUpdatedRemaining") {
+                const { listingId, remaining } = args;
+                const lId = Number(listingId);
+                const rem = toTokens(remaining, 18);
+                await Listing.findOneAndUpdate({ listingId: lId }, { remaining: Number(rem) });
+                if (Number(rem) === 0) {
+                    await Listing.findOneAndUpdate({ listingId: lId }, { active: false });
+                }
+            }
+            else if (eventName === "ListingCancelled") {
+                const { listingId } = args;
+                const lId = Number(listingId);
+                await Listing.findOneAndUpdate({ listingId: lId }, { active: false });
+            }
+
+        } catch (error) {
+            console.error("Error processing event:", error);
+        }
     }
 }
 

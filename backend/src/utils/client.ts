@@ -8,5 +8,5 @@ dotenv.config();
 export const client = createThirdwebClient({
     clientId: process.env.THIRDWEB_CLIENT_ID!,
 });
-// export const chain = sepolia;
-export const chain = anvil;
+export const chain = sepolia;
+// export const chain = anvil;

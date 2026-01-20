@@ -7,7 +7,16 @@ import swapRoutes from './routes/swapRoutes.js';
 
 const app = express();
 
-app.use(cors({ origin: '*' }));
+// Enhanced CORS configuration
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: false,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+}));
+
 app.use(express.json());
 
 app.use('/api/trade', tradeRoutes);

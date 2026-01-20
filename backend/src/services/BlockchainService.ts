@@ -94,19 +94,83 @@ class BlockchainService {
         return transactionHash;
     }
 
-    public startEventListener() {
+    public async startEventListener(): Promise<void> {
         if (!this.contract || this.isListening) return;
 
         console.log("Starting Blockchain Event Listener (Thirdweb)...");
         this.isListening = true;
 
-        // Watch all events
-        watchContractEvents({
-            contract: this.contract,
-            onEvents: (events) => {
-                events.forEach(event => this.processEvent(event));
-            }
-        });
+        let result: any;
+        try {
+            // Watch all events - use indexer to avoid block range issues
+            result = watchContractEvents({
+                contract: this.contract,
+                useIndexer: true, // Use thirdweb indexer instead of direct RPC to avoid block range errors
+                onEvents: (events) => {
+                    events.forEach(event => {
+                        // Handle each event processing asynchronously
+                        this.processEvent(event).catch((error) => {
+                            console.error("Error processing event in forEach:", error);
+                        });
+                    });
+                }
+            });
+        } catch (error: any) {
+            console.error("Failed to start blockchain event listener (synchronous error):", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            this.isListening = false;
+            // Retry after a delay
+            setTimeout(() => {
+                if (!this.isListening) {
+                    console.log("Retrying to start event listener after synchronous error...");
+                    this.startEventListener().catch(err => {
+                        console.error("Failed to retry event listener:", err);
+                    });
+                }
+            }, 5000);
+            return;
+        }
+
+        // Handle if watchContractEvents returns a promise
+        if (result && typeof result.then === 'function') {
+            result.catch((error: any) => {
+                // Ignore "invalid block range params" error - it's about historical queries
+                // The listener will still work for new events going forward
+                if (error?.code === -32000 && error?.message?.includes('invalid block range params')) {
+                    console.warn("Block range error (historical queries may fail, but new events will be monitored):", error.message);
+                    // Don't reset isListening or retry - the listener is still active for new events
+                    return;
+                }
+                
+                console.error("Error in watchContractEvents promise:", error);
+                console.error("Error code:", error?.code);
+                console.error("Error message:", error?.message);
+                console.error("Full error:", JSON.stringify(error, null, 2));
+                this.isListening = false;
+                // Retry after a delay for other errors
+                setTimeout(() => {
+                    if (!this.isListening) {
+                        console.log("Retrying to start event listener after promise rejection...");
+                        this.startEventListener().catch(err => {
+                            console.error("Failed to retry event listener:", err);
+                        });
+                    }
+                }, 10000); // Longer delay for RPC errors
+            });
+        }
+        // If watchContractEvents returns an unsubscribe function, store it
+        else if (result && typeof result === 'function') {
+            // Store unsubscribe function if needed for cleanup
+            (this as any).unsubscribe = result;
+            console.log("Event listener started successfully");
+        }
+        // If watchContractEvents returns an object with unsubscribe method
+        else if (result && typeof result === 'object' && result !== null) {
+            (this as any).unsubscribe = result;
+            console.log("Event listener started successfully");
+        } else {
+            console.log("Event listener setup completed (no return value)");
+        }
     }
 
     private async processEvent(event: any) {

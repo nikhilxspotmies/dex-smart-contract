@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Script, console} from "forge-std/Script.sol";
 import {Perpetual} from "../src/perpetual/Perpetual.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @notice Setup Synthetic LP (Liquidity Provider) for the perpetual contract
@@ -39,7 +40,7 @@ contract SetupSyntheticLP is Script {
         
         address systemLpAddress = vm.addr(systemLpPrivateKey);
         console.log("System LP Address:", systemLpAddress);
-        console.log("\n⚠️  IMPORTANT: Save the private key securely!");
+        console.log("\nIMPORTANT: Save the private key securely!");
         console.log("   The private key will be shown in the transaction logs.");
         console.log("   Add to your backend .env as:");
         console.log("   SYSTEM_LP_ADDRESS=", vm.toString(systemLpAddress));
@@ -66,7 +67,7 @@ contract SetupSyntheticLP is Script {
         vm.startBroadcast(deployerPrivateKey);
         
         // Get contract instances
-        IERC20 usdc = IERC20(usdcAddress);
+        IERC20Metadata usdc = IERC20Metadata(usdcAddress);
         
         // Step 1: Check token decimals and fund System LP wallet
         console.log("\n=== Step 1: Funding System LP Wallet ===");
@@ -91,9 +92,9 @@ contract SetupSyntheticLP is Script {
             if (deployerBalance >= needed) {
                 console.log("Transferring", needed / (10 ** tokenDecimals), "USDC from deployer to System LP...");
                 require(usdc.transfer(systemLpAddress, needed), "Transfer failed");
-                console.log("✓ Transferred", needed / (10 ** tokenDecimals), "USDC to System LP");
+                console.log("Transferred", needed / (10 ** tokenDecimals), "USDC to System LP");
             } else {
-                console.log("⚠️  Warning: Deployer doesn't have enough USDC.");
+                console.log("Warning: Deployer doesn't have enough USDC.");
                 console.log("   Deployer balance:", deployerBalance / (10 ** tokenDecimals), "USDC");
                 console.log("   Needed:", needed / (10 ** tokenDecimals), "USDC");
                 console.log("   Please manually fund the System LP wallet or mint more tokens.");
@@ -101,7 +102,7 @@ contract SetupSyntheticLP is Script {
                 return;
             }
         } else {
-            console.log("✓ System LP already has enough USDC");
+            console.log("System LP already has enough USDC");
         }
         
         vm.stopBroadcast();
@@ -110,7 +111,6 @@ contract SetupSyntheticLP is Script {
         vm.startBroadcast(systemLpPrivateKey);
         
         Perpetual perpetual = Perpetual(payable(perpetualAddress));
-        usdc = IERC20(usdcAddress);
         
         // Step 2: Approve Perpetual contract to spend USDC
         console.log("\n=== Step 2: Approving Perpetual Contract ===");
@@ -119,9 +119,9 @@ contract SetupSyntheticLP is Script {
         
         if (currentAllowance < depositAmountInTokenDecimals) {
             require(usdc.approve(perpetualAddress, approvalAmount), "Approve failed");
-            console.log("✓ Approved Perpetual contract to spend USDC");
+            console.log("Approved Perpetual contract to spend USDC");
         } else {
-            console.log("✓ Already approved");
+            console.log("Already approved");
         }
         
         // Step 3: Deposit USDC into Perpetual contract
@@ -154,7 +154,7 @@ contract SetupSyntheticLP is Script {
         uint256 contractBalanceAfter = usdc.balanceOf(perpetualAddress);
         console.log("Contract USDC balance before:", contractBalanceBefore / (10 ** tokenDecimals));
         console.log("Contract USDC balance after:", contractBalanceAfter / (10 ** tokenDecimals));
-        console.log("✓ Deposited", depositAmountHuman, "USDC into Perpetual contract");
+        console.log("Deposited", depositAmountHuman, "USDC into Perpetual contract");
         
         vm.stopBroadcast();
         
@@ -167,7 +167,7 @@ contract SetupSyntheticLP is Script {
         console.log("   SYSTEM_LP_ADDRESS=", vm.toString(systemLpAddress));
         console.log("\n2. Restart your backend server");
         console.log("\n3. The System LP will now act as counterparty for unmatched orders");
-        console.log("\n⚠️  Note: Save the System LP private key securely!");
+        console.log("\nNote: Save the System LP private key securely!");
         console.log("   You can find it in the transaction logs or set SYSTEM_LP_PRIVATE_KEY in .env");
     }
 }

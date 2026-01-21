@@ -68,18 +68,17 @@ contract PerpetualTest is Test {
         vm.prank(alice);
         perp.deposit(1000 * 1e6);
 
-        vm.startPrank(operator);
-        // Price is already set in setUp to $2000
+        // Operator opens
+        vm.prank(operator);
         perp.trade(alice, 1e18, 2000 * 1e18); // Open Long 1 @ 2000
 
-        // Price goes to 2500 - update oracle
+        // Price goes to 2500 - update oracle (owner)
         vm.prank(oracle.owner());
         oracle.setPrice(address(indexToken), 2500 * 1e18);
         
-        // Alice closes 1 ETH at $2500
+        // Operator closes
         vm.prank(operator);
         perp.trade(alice, -1e18, 2500 * 1e18); 
-        vm.stopPrank();
 
         (int256 margin, Perpetual.Position memory pos) = perp.accounts(alice);
         assertEq(pos.size, 0);

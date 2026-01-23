@@ -22,7 +22,7 @@ contract PositionManager is Ownable {
         } else {
             require(price >= r.acceptablePrice, "slip short");
         }
-        Market(r.market).increasePosition(r.user, r.sizeDelta, r.collateralDelta, r.isLong, price);
+        Market(r.market).increasePosition(r.user, r.positionId, r.sizeDelta, r.collateralDelta, r.isLong, price);
     }
 
     function executeDecrease(uint256 requestId) external {
@@ -33,12 +33,12 @@ contract PositionManager is Ownable {
         } else {
             require(price <= r.acceptablePrice, "slip short dec");
         }
-        Market(r.market).decreasePosition(r.user, r.sizeDelta, r.isLong, price);
+        Market(r.market).decreasePosition(r.user, r.positionId, r.sizeDelta, r.isLong, price);
     }
 
-    function liquidate(address market, address user) external {
+    function liquidate(address market, uint256 positionId) external {
         uint256 price = Market(market).getOraclePrice();
-        Market(market).liquidate(user, price);
+        Market(market).liquidate(positionId, price);
     }
 }
 

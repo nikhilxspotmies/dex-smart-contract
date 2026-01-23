@@ -145,3 +145,20 @@ $ forge script script/DeployTokens.s.sol --rpc-url https://eth-sepolia.g.alchemy
 
 $ forge script script/DeployLimitOrder.s.sol --rpc-url https://eth-sepolia.g.alchemy.com/v2/vNiyuieL-QhxDchV_hvLz --private-key b1947c8f155be8012cb65ce74f550959ab9e7fdf9c61867448f2dc970bacb35c --broadcast
 
+
+
+
+------->deploy-perps-new<---------
+forge script script/DeployNewPerp.s.sol:DeployNewPerp \
+  --rpc-url http://localhost:8545 \
+  --broadcast \
+  -vvvv
+
+export VAULT_ADDRESS=0x9bd03768a7DCc129555dE410FF8E85528A4F88b5
+export USDC_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+export SEED_AMOUNT=100000000000  # 100k USDC (6 decimals)
+
+# Run the script 
+forge script script/SeedVault.s.sol:SeedVault \
+  --rpc-url http://localhost:8545 \
+  --broadcast

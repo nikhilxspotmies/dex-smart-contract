@@ -12,6 +12,7 @@ contract Router is Ownable {
     struct Request {
         address user;
         address market;
+        uint256 positionId; // 0 = new position, >0 = existing position
         uint256 sizeDelta; // 1e18
         uint256 collateralDelta; // 6d
         bool isLong;
@@ -44,6 +45,7 @@ contract Router is Ownable {
 
     function createIncreaseRequest(
         address market,
+        uint256 positionId, // 0 = new position, >0 = existing position
         uint256 sizeDelta,
         uint256 collateralDelta,
         bool isLong,
@@ -55,6 +57,7 @@ contract Router is Ownable {
         requests[id] = Request({
             user: msg.sender,
             market: market,
+            positionId: positionId,
             sizeDelta: sizeDelta,
             collateralDelta: collateralDelta,
             isLong: isLong,
@@ -71,15 +74,18 @@ contract Router is Ownable {
 
     function createDecreaseRequest(
         address market,
+        uint256 positionId, // required, must be > 0
         uint256 sizeDelta,
         bool isLong,
         uint256 acceptablePrice,
         uint256 executionFee
     ) external returns (uint256 id) {
+        require(positionId > 0, "pos id required");
         id = nextRequestId++;
         requests[id] = Request({
             user: msg.sender,
             market: market,
+            positionId: positionId,
             sizeDelta: sizeDelta,
             collateralDelta: 0,
             isLong: isLong,

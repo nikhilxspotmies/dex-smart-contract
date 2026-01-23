@@ -50,11 +50,15 @@ contract Market is ReentrancyGuard, Ownable {
 
     address public positionManager; // executor authority
 
-    mapping(address => Position) public positions;
+    // Position ID system for multiple positions per user
+    uint256 public nextPositionId = 1;
+    mapping(uint256 => Position) public positions;
+    mapping(address => uint256[]) public userPositionIds;
+    mapping(uint256 => address) public positionOwner;
 
-    event PositionIncreased(address indexed user, bool isLong, uint256 size, uint256 collateral, uint256 price);
-    event PositionDecreased(address indexed user, bool isLong, uint256 size, uint256 collateral, uint256 price, int256 pnl);
-    event Liquidated(address indexed user, bool isLong, uint256 size, uint256 collateral, uint256 price, int256 pnl);
+    event PositionIncreased(address indexed user, uint256 indexed positionId, bool isLong, uint256 size, uint256 collateral, uint256 price);
+    event PositionDecreased(address indexed user, uint256 indexed positionId, bool isLong, uint256 size, uint256 collateral, uint256 price, int256 pnl);
+    event Liquidated(address indexed user, uint256 indexed positionId, bool isLong, uint256 size, uint256 collateral, uint256 price, int256 pnl);
     event FundingUpdated(int256 cumulativeLong, int256 cumulativeShort);
 
     constructor(
@@ -122,6 +126,7 @@ contract Market is ReentrancyGuard, Ownable {
 
     function increasePosition(
         address user,
+        uint256 positionId, // 0 = new position, >0 = existing position
         uint256 sizeDelta, // 1e18 USD notionals
         uint256 collateralDelta, // 6d (already transferred to vault by router/pm)
         bool isLong,
@@ -129,9 +134,31 @@ contract Market is ReentrancyGuard, Ownable {
     ) external nonReentrant onlyPM {
         _updateFunding(price);
 
-        Position storage p = positions[user];
-        if (p.size > 0 && p.isLong != isLong) {
-            revert("side change");
+        Position storage p;
+        bool isNewPosition = (positionId == 0);
+
+        if (isNewPosition) {
+            // Create new position
+            positionId = nextPositionId++;
+            p = positions[positionId];
+            p.entryPrice = price;
+            p.isLong = isLong;
+            p.fundingEntry = isLong ? cumulativeFundingLong : cumulativeFundingShort;
+            p.size = sizeDelta;
+            positionOwner[positionId] = user;
+            userPositionIds[user].push(positionId);
+        } else {
+            // Add to existing position
+            require(positionOwner[positionId] == user, "not owner");
+            p = positions[positionId];
+            require(p.size > 0, "pos not found");
+            require(p.isLong == isLong, "side mismatch");
+
+            // Update weighted average entry price
+            uint256 newSize = p.size + sizeDelta;
+            p.entryPrice = (p.entryPrice * p.size + price * sizeDelta) / newSize;
+            p.fundingEntry = isLong ? cumulativeFundingLong : cumulativeFundingShort;
+            p.size = newSize;
         }
 
         uint256 feeUsd = (sizeDelta * FEE_BPS) / BPS_DIV;
@@ -168,31 +195,20 @@ contract Market is ReentrancyGuard, Ownable {
             }
         }
 
-        // Weighted avg entry price per position
-        if (p.size == 0) {
-            p.entryPrice = price;
-            p.isLong = isLong;
-            p.fundingEntry = isLong ? cumulativeFundingLong : cumulativeFundingShort;
-            p.size = sizeDelta;
-        } else {
-            uint256 newSize = p.size + sizeDelta;
-            p.entryPrice = (p.entryPrice * p.size + price * sizeDelta) / newSize;
-            p.fundingEntry = isLong ? cumulativeFundingLong : cumulativeFundingShort;
-            p.size = newSize;
-        }
-
-        emit PositionIncreased(user, isLong, p.size, p.collateral, price);
+        emit PositionIncreased(user, positionId, isLong, p.size, p.collateral, price);
     }
 
     function decreasePosition(
         address user,
+        uint256 positionId,
         uint256 sizeDelta,
         bool isLong,
         uint256 price
     ) external nonReentrant onlyPM {
         _updateFunding(price);
 
-        Position storage p = positions[user];
+        require(positionOwner[positionId] == user, "not owner");
+        Position storage p = positions[positionId];
         require(p.size >= sizeDelta && p.size > 0, "size too big");
         require(p.isLong == isLong, "side mismatch");
 
@@ -215,6 +231,15 @@ contract Market is ReentrancyGuard, Ownable {
         if (p.size == 0) {
             p.collateral = 0;
             p.entryPrice = 0;
+            // Remove position ID from user's list (mark as deleted by setting to 0)
+            uint256[] storage ids = userPositionIds[user];
+            for (uint256 i = 0; i < ids.length; i++) {
+                if (ids[i] == positionId) {
+                    ids[i] = ids[ids.length - 1];
+                    ids.pop();
+                    break;
+                }
+            }
         } else {
             p.collateral -= collateralPortion;
         }
@@ -244,7 +269,7 @@ contract Market is ReentrancyGuard, Ownable {
             vault.pull(user, userReturnUsdc);
         }
 
-        emit PositionDecreased(user, isLong, sizeDelta, p.collateral, price, pnl);
+        emit PositionDecreased(user, positionId, isLong, sizeDelta, p.collateral, price, pnl);
 
         // reduce OI
         if (isLong) {
@@ -254,9 +279,10 @@ contract Market is ReentrancyGuard, Ownable {
         }
     }
 
-    function liquidate(address user, uint256 price) external nonReentrant onlyPM {
-        Position storage p = positions[user];
+    function liquidate(uint256 positionId, uint256 price) external nonReentrant onlyPM {
+        Position storage p = positions[positionId];
         require(p.size > 0, "no pos");
+        address user = positionOwner[positionId];
         _updateFunding(price);
 
         // Check maintenance margin
@@ -281,7 +307,7 @@ contract Market is ReentrancyGuard, Ownable {
         }
         require(collateralPlusPnl < mmUsdc, "healthy");
 
-        emit Liquidated(user, p.isLong, p.size, p.collateral, price, pnl);
+        emit Liquidated(user, positionId, p.isLong, p.size, p.collateral, price, pnl);
 
         // adjust OI
         if (p.isLong) {
@@ -289,7 +315,19 @@ contract Market is ReentrancyGuard, Ownable {
         } else {
             oiShort -= p.size;
         }
-        delete positions[user];
+
+        // Remove position ID from user's list
+        uint256[] storage ids = userPositionIds[user];
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (ids[i] == positionId) {
+                ids[i] = ids[ids.length - 1];
+                ids.pop();
+                break;
+            }
+        }
+
+        delete positions[positionId];
+        delete positionOwner[positionId];
     }
 
     // ---- Internal math ----
@@ -326,8 +364,44 @@ contract Market is ReentrancyGuard, Ownable {
         positionManager = pm;
     }
 
-    function getPosition(address user) external view returns (Position memory) {
-        return positions[user];
+    // ---- View functions for multiple positions ----
+
+    function getPosition(uint256 positionId) external view returns (Position memory) {
+        return positions[positionId];
+    }
+
+    function getUserPositionIds(address user) external view returns (uint256[] memory) {
+        return userPositionIds[user];
+    }
+
+    function getUserPositionCount(address user) external view returns (uint256) {
+        return userPositionIds[user].length;
+    }
+
+    /// @notice Get all active positions for a user
+    function getUserPositions(address user) external view returns (uint256[] memory positionIds, Position[] memory positionList) {
+        uint256[] memory ids = userPositionIds[user];
+        uint256 activeCount = 0;
+        
+        // Count active positions first
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (positions[ids[i]].size > 0) {
+                activeCount++;
+            }
+        }
+
+        // Allocate arrays
+        positionIds = new uint256[](activeCount);
+        positionList = new Position[](activeCount);
+        
+        uint256 index = 0;
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (positions[ids[i]].size > 0) {
+                positionIds[index] = ids[i];
+                positionList[index] = positions[ids[i]];
+                index++;
+            }
+        }
     }
 }
 

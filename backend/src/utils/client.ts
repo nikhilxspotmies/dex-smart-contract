@@ -1,35 +1,16 @@
-// src/client.ts
+
 import { createThirdwebClient } from "thirdweb";
-import { anvil, bsc, sepolia } from "thirdweb/chains";
+import { defineChain } from "thirdweb/chains";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 export const client = createThirdwebClient({
-  clientId: process.env.THIRDWEB_CLIENT_ID!,
+  clientId: process.env.THIRDWEB_CLIENT_ID || "8ca215ef540ad64e09539db92ef92e91",
 });
-// export const chain = bsc;
-// export const chain = anvil;
 
-// import { createThirdwebClient } from "thirdweb";
-import { defineChain } from "thirdweb/chains";
-
-// export const client = createThirdwebClient({
-//   clientId: process.env.THIRDWEB_CLIENT_ID!,
-// });
-
-// // Define your custom chain with RPC
 export const chain = defineChain({
-  id: 56, // BNB Smart Chain Mainnet
-  name: "BNB Smart Chain",
-  rpc: process.env.RPC_URL || "https://bsc-dataseed.binance.org/",
+  id: 31337,
+  name: "Anvil Local",
+  rpc: process.env.RPC_URL || "http://127.0.0.1:8545",
 });
-
-// // Example: use with a contract
-// import { getContract } from "thirdweb";
-
-// const contract = getContract({
-//   client,
-//   chain: bnbChain,
-//   address: "0xYourContractAddress",
-// });

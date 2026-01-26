@@ -1,6 +1,8 @@
 import app from './app.js';
 import connectDB from './config/db.js';
 import BlockchainService from './services/BlockchainService.js';
+import { startPerpEventListener } from './services/PerpEventListener.js';
+import { LiquidationKeeper } from './keepers/LiquidationKeeper.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -16,7 +18,7 @@ process.on('unhandledRejection', (reason, promise) => {
             return;
         }
     }
-    
+
     console.error('Unhandled Rejection detected:');
     console.error('Reason:', reason);
     if (reason && typeof reason === 'object') {
@@ -35,21 +37,44 @@ process.on('uncaughtException', (error) => {
 
 const PORT = process.env.PORT || 3000;
 
+
+
+
 // Connect to Database
-connectDB().catch((error) => {
+connectDB().then(() => {
+    // Start Services only after DB is connected
+
+    // 1. Event Listener
+    try {
+        startPerpEventListener();
+        console.log("Perp Event Listener started");
+    } catch (e) {
+        console.error("Failed to start Perp Event Listener:", e);
+    }
+
+    // 2. Liquidation Keeper
+    try {
+        const keeper = new LiquidationKeeper();
+        keeper.start();
+        console.log("Liquidation Keeper started");
+    } catch (e) {
+        console.error("Failed to start Liquidation Keeper:", e);
+    }
+
+}).catch((error) => {
     console.error('Failed to connect to database:', error);
     process.exit(1);
 });
 
-// Start Blockchain Listener
-BlockchainService.startEventListener().catch((error) => {
-    console.error('Failed to start blockchain event listener:', error);
-    // Don't exit immediately, let it retry
-    console.log('Event listener will retry automatically...');
-});
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
 
 
+// Start Blockchain Listeners
+// BlockchainService.startEventListener().catch((error) => {
+//     console.error('Failed to start blockchain event listener:', error);
+//     // Don't exit immediately, let it retry
+//     console.log('Event listener will retry automatically...');
+// });

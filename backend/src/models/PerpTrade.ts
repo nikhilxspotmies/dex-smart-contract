@@ -26,6 +26,8 @@ export interface IPerpTrade extends Document {
     // Outcome Data
     exitPrice?: string;
     pnl?: string;
+    closedSize?: string; // Size at the time of closing
+    closedCollateral?: string; // Collateral at the time of closing
 
     // Metadata
     status: TradeStatus;
@@ -49,6 +51,8 @@ const PerpTradeSchema: Schema = new Schema({
 
     exitPrice: { type: String },
     pnl: { type: String },
+    closedSize: { type: String },
+    closedCollateral: { type: String },
 
     status: { type: String, enum: Object.values(TradeStatus), default: TradeStatus.OPEN },
 

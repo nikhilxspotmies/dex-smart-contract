@@ -214,6 +214,9 @@ async function handlePositionDecreased(args: any, txHash: string, blockNumber: b
             trade.status = TradeStatus.CLOSED;
             trade.closeTxHash = txHash;
             trade.closedAt = new Date();
+            trade.closedSize = currentSize.toString(); // Save size before resetting
+            trade.closedCollateral = trade.collateral; // Save collateral before resetting
+            trade.exitPrice = price.toString(); // Save exit price
             trade.size = "0";
             trade.collateral = "0"; // Collateral should be 0 if closed
         } else {
@@ -250,6 +253,8 @@ async function handleLiquidated(args: any, txHash: string, blockNumber: bigint) 
         trade.closeTxHash = txHash;
         trade.closedAt = new Date();
         trade.exitPrice = price.toString();
+        trade.closedSize = trade.size; // Save size before resetting
+        trade.closedCollateral = trade.collateral; // Save collateral before resetting
         trade.size = "0";
         trade.collateral = "0";
 

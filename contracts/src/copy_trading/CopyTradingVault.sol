@@ -12,6 +12,16 @@ import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
  * @notice Simplified vault logic designed to be used with Clones.
  * @dev One-Vault-Per-User architecture. No internal accounting needed.
  */
+interface IDexRouter {
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
+}
+
 contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
     using SafeERC20 for IERC20;
 
@@ -42,7 +52,7 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
     // --- Constructor / Initializer ---
     
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() Ownable(address(0)) {
+    constructor() Ownable(msg.sender) {
         _disableInitializers();
     }
 
@@ -130,6 +140,40 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         emit Withdrawn(token, balance);
     }
 
+    /**
+     * @notice Withdraw multiple tokens in a single transaction.
+     * @param tokens Array of token addresses
+     * @param amounts Array of amounts to withdraw (use type(uint256).max for 'All')
+     */
+    function withdrawBatch(address[] calldata tokens, uint256[] calldata amounts) external nonReentrant onlyOwner {
+        require(tokens.length == amounts.length, "Length mismatch");
+        
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+            uint256 amount = amounts[i];
+            
+            // Check if user requested "All" (using a high number convention or just checking balance)
+            // For strictness, we just use the amount provided.
+            
+            if (amount > 0) {
+                 uint256 currentBalance = IERC20(token).balanceOf(address(this));
+                 // If sending type(uint256).max, just withdraw everything? 
+                 // The user plan said "explicit amounts", but for "Withdraw Funds" button ease, 
+                 // we might pass exact balances from frontend. 
+                 // Let's safe-guard: limit to balance.
+                 
+                 if (amount > currentBalance) {
+                     amount = currentBalance;
+                 }
+
+                 if (amount > 0) {
+                     IERC20(token).safeTransfer(msg.sender, amount);
+                     emit Withdrawn(token, amount);
+                 }
+            }
+        }
+    }
+
     // --- Executor Functions ---
 
     /**
@@ -154,9 +198,9 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
             require(balanceIn >= swap.amountIn, "Insufficient balance for swap");
 
             // 2. Execute Swap on Router
-            uint256 netAmountReceived = _performSwapCall(swap.tokenIn, swap.tokenOut, swap.amountIn, swap.data);
+            uint256 netAmountReceived = _performSwapCall(swap.tokenIn, swap.tokenOut, swap.amountIn, swap.minAmountOut, swap.data);
 
-            // 3. Slippage Check
+            // 3. Slippage Check (Redundant if Router checks it, but good for double safety)
             require(netAmountReceived >= swap.minAmountOut, "Slippage tolerance exceeded");
 
             emit Swapped(swap.tokenIn, swap.tokenOut, swap.amountIn, netAmountReceived);
@@ -167,32 +211,45 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         address tokenIn,
         address tokenOut,
         uint256 amountIn,
+        uint256 minAmountOut,
         bytes memory data
     ) internal returns (uint256) {
+        // Decode path from data
+        address[] memory path = abi.decode(data, (address[]));
+        require(path.length >= 2, "Invalid path length");
+        require(path[0] == tokenIn, "Path start mismatch");
+        require(path[path.length - 1] == tokenOut, "Path end mismatch");
+
         // Approve Router
         IERC20(tokenIn).forceApprove(swapRouter, amountIn);
 
         uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
 
-        // Execute
-        (bool success, bytes memory returnData) = swapRouter.call(data);
-        if (!success) {
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Swap execution failed");
-            }
-        }
+        // Execute Swap
+        // IDexRouter interface defined locally or cast to generic interface with signature
+        // We use low-level call or cast to interface. User requested "specifically call the swapExactTokensForTokens function".
+        // Let's cast msg.sender (which is Router in the context of the OTHER file, but here swapRouter is the address)
+        
+        // Define interface signature inline or assume it is available. 
+        // To be safe and clean, I will cast to an interface I define at top of file, 
+        // OR just use abi.encodeWithSelector since I am already editing the file.
+        // But user explicitly said "specifically call...".
+        
+        // Let's modify the file to include the interface at the top first, or validly usage here.
+        // For now, I will use the interface call.
+        IDexRouter(swapRouter).swapExactTokensForTokens(
+            amountIn,
+            minAmountOut,
+            path,
+            address(this),
+            block.timestamp + 60 // Deadline
+        );
 
         uint256 balanceAfter = IERC20(tokenOut).balanceOf(address(this));
         
         // Reset approval
         IERC20(tokenIn).forceApprove(swapRouter, 0);
 
-        require(balanceAfter >= balanceBefore, "Negative balance change?");
         return balanceAfter - balanceBefore;
     }
 

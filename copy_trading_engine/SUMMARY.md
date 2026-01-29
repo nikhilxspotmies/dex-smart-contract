@@ -1,43 +1,56 @@
-# Copy Trading System Summary
+# Copy Trading Engine & Contracts Structure
 
-This document explains the "Hybrid Architecture" we have built for Copy Trading, consisting of an On-Chain Vault and an Off-Chain Engine.
+This project implements a decentralized copy-trading system where users can automatically replicate the specific token allocations of a "Target Whale".
 
-## 1. The Smart Contract ("The Vault")
-**File:** `contracts/src/copy_trading/CopyTradingVault.sol`
+## 1. Architecture: Factory + Clones
+We use a **One-Vault-Per-User** model for security and isolation.
+- **Factory**: The central hub that deploys new vaults.
+- **Vault**: A personal smart contract for each user that holds their funds and executes trades.
 
-Think of this contract as a **Smart Bank Account**.
--   **Custody:** It holds all user funds securely in one place.
--   **Internal Ledger:** Instead of creating separate wallets for everyone, it uses a "spreadsheet" (mapping) inside the contract to remember exactly how much of each token belongs to you.
--   **Security:** Only the **Executor** (our backend bot) is allowed to initiate trades on behalf of users.
--   **Execution:** When told to swap, it talks directly to your DEX Router to exchange tokens.
+## 2. Smart Contracts
+Located in: `dex-smart-contract/contracts/src/copy_trading`
 
-## 2. The Backend Engine ("The Brain")
-**File:** `copy_trading_engine/src/index.ts`
+### `CopyTradingFactory.sol`
+- **Purpose**: Deploys individual vaults for users using the minimal proxy pattern (Clones) to save gas.
+- **Key Function**: `createVault()` - Deploys a new vault and assigns ownership to the caller.
+- **Registry**: Keeps track of all deployed vaults via `userVaults` mapping and `VaultCreated` events.
 
-This is a Node.js program that runs 24/7 (like a Cron Job). Its job is to **Watch** and **Decide**.
+### `CopyTradingVault.sol`
+- **Purpose**: Securely holds user funds and logic for rebalancing.
+- **Ownership**: Owned by the User (can withdraw anytime).
+- **Permissions**: Allows a specific **Executor** (our backend bot) to trigger swaps, but *only* if they follow valid paths.
+- **Key Function**: `rebalance(swaps)` - Executes swaps on the DEX Router to align with the target whale.
 
-### How it works (The Loop):
-1.  **Get Info:** Every few minutes, it looks at the Vault to see:
-    -   *Who is User A copying?* (e.g., Whale B)
-    -   *What tokens does User A have?*
-    -   *What tokens does Whale B have?*
+## 3. Backend Engine
+Located in: `dex-smart-contract/copy_trading_engine`
 
-2.  **Check Prices (The "Eye"):**
-    -   To know if portfolios are equal, it needs to know what tokens are worth.
-    -   It calls your **DEX Router** directly (`getAmountsOut`) to check the price of every token in **TKB** (your stablecoin/base token).
-    -   *Example:* "1 ETH is worth 3000 TKB".
+The backend is a Node.js/TypeScript service that runs a continuous loop (cron job) to monitor and adjust portfolios.
 
-3.  **Compare (The "Logic"):**
-    -   It calculates percentages.
-    -   *Whale:* 50% TKA, 50% TKB.
-    -   *User:* 10% TKA, 90% TKB.
-    -   **Result:** "User has too little TKA!"
+### Core Components used in `src/index.ts`:
 
-4.  **Execute (The "Hand"):**
-    -   If the difference is big (>5%), it creates specialized instructions ("Calldata").
-    -   It sends a transaction to the **Vault** saying: *"Please swap User A's TKB for TKA right now."*
+#### A. Vault Manager (`managers/VaultManager.ts`)
+- Listens to the Factory contract.
+- Detects every time a user creates a new vault.
+- Maintains a list of active vaults to monitor.
 
-## Why this design?
--   **Gas Efficient:** Users don't pay gas for every trade; the Engine handles the logic off-chain.
--   **Accurate:** By using your DEX for prices, trades happen at real market rates.
--   **Safe:** The Engine cannot withdraw funds; it can only swap them back into the Vault.
+#### B. Portfolio Analyzer (`logic/Portfolio.ts`)
+- **Valuation**: Fetches real-time USD prices for tokens using the DEX Router.
+- **Comparison**: 
+    1. Calculates the **Whale's** portfolio ratios (e.g., "Whale holds 60% Token A").
+    2. Calculates the **User's** portfolio ratios.
+    3. Finds **Deviations**: If the user's allocation differs by more than **5%**, it flags a rebalance is needed.
+
+#### C. Trade Executor (`logic/Executor.ts`)
+- **Pathfinding**: Determines the best path to swap "Overweight" tokens into "Underweight" tokens.
+- **Slippage Protection**: Calculates minimum output to prevent front-running attacks.
+- **Execution**: Sends a transaction to the User's Vault to perform the actual swap on-chain.
+
+## 4. How It Works (The Loop)
+1. **User** deploys a Vault via the Factory and deposits funds.
+2. **User** sets a `targetWhale` address on their Vault.
+3. **Backend Engine** picks up the new Vault.
+4. **Every 30 seconds**:
+   - Engine checks: *Is User's portfolio different from Whale's?*
+   - If **YES**: Engine sends a `rebalance` transaction to the Vault.
+   - **Vault** executes the swap on the DEX.
+   - User's portfolio matches the Whale again.

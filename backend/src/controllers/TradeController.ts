@@ -1,7 +1,10 @@
 import type { Request, Response } from 'express';
 import BlockchainService from '../services/BlockchainService.js';
 import Trade from '../models/Trade.js';
+import ReferralService from '../services/ReferralService.js';
 
+
+import User from '../models/User.js';
 
 // problem here uniquley need to verify the crypto seller that request should not able to send by imposter..
 export const releaseFunds = async (req: Request, res: Response): Promise<void> => {
@@ -33,6 +36,10 @@ export const releaseFunds = async (req: Request, res: Response): Promise<void> =
         // 3. Update DB
         trade.status = 'Released';
         await trade.save();
+
+        // 4. Referral Reward Logic
+        // Check universal flag via ReferralService
+        await ReferralService.checkAndAwardReferral(trade.buyer);
 
         res.status(200).json({ message: "Funds released successfully", txHash });
 

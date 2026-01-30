@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import orderRoutes from './routes/order.routes.js';
 import { MatchingEngine } from './services/matching.service.js';
+import { seedData } from './utils/seedData.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -35,5 +36,6 @@ app.get('/health', (req, res) => {
 
 app.listen(port, () => {
     console.log(`Limit Order Backend running on port ${port}`);
+    seedData();
     matchingEngine.start();
 });

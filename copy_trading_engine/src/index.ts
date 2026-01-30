@@ -101,8 +101,8 @@ async function runEngine() {
     }
 }
 
-// Start Cron (Every 6 minutes)
-cron.schedule('*/6 * * * *', runEngine);
+// Start Cron (Every 30 seconds)
+cron.schedule('*/30 * * * * *', runEngine);
 
 // Immediate Start
 console.log("Copy Trading Engine V2 Initialized.");

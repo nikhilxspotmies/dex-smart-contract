@@ -1,16 +1,14 @@
-
-import { prepareEvent, getContractEvents } from "thirdweb";
+import { prepareEvent, getContractEvents, getContract, watchContractEvents } from "thirdweb";
 import { client, chain } from "../utils/client.js";
-import { getContract } from "thirdweb";
 import PerpTrade, { TradeStatus } from "../models/PerpTrade.js";
 import { config } from "dotenv";
 
 config();
 
-const MARKET_ADDRESS = process.env.VITE_PERP_MARKET_ADDRESS || "";
+const MARKET_ADDRESS = process.env.PERP_MARKET_ADDRESS || process.env.VITE_PERP_MARKET_ADDRESS || "";
 
 if (!MARKET_ADDRESS) {
-    console.error("Missing VITE_PERP_MARKET_ADDRESS in .env");
+    console.error("Missing PERP_MARKET_ADDRESS or VITE_PERP_MARKET_ADDRESS in .env");
 }
 
 const contract = getContract({
@@ -70,11 +68,7 @@ export class PerpEventListener {
     }
 }
 
-// Actual Implementation with Thirdweb 'watchContractEvents' if supported or polling
-// Let's rely on the definition found in `BlockchainService.ts` imports: 
-// import { watchContractEvents } from "thirdweb";
-
-import { watchContractEvents } from "thirdweb";
+// Actual Implementation using Thirdweb 'watchContractEvents'
 
 export const startPerpEventListener = () => {
     console.log("Starting Perpetual Event Listener...");

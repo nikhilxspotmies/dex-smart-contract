@@ -45,12 +45,12 @@ connectDB().then(() => {
     // Start Services only after DB is connected
 
     // 1. Event Listener
-    // try {
-    //     startPerpEventListener();
-    //     console.log("Perp Event Listener started");
-    // } catch (e) {
-    //     console.error("Failed to start Perp Event Listener:", e);
-    // }
+    try {
+        startPerpEventListener();
+        console.log("Perp Event Listener started");
+    } catch (e) {
+        console.error("Failed to start Perp Event Listener:", e);
+    }
 
     // // 2. Liquidation Keeper
     // try {

@@ -6,6 +6,7 @@ import "./Vault.sol";
 
 /// @notice Deploys isolated markets and vaults for each pair.
 contract MarketFactory {
+    address[] public allMarkets;
     address public owner;
 
     event MarketCreated(address indexed market, address indexed vault, string base, address quote);
@@ -37,7 +38,13 @@ contract MarketFactory {
         vault = address(new Vault(quote));
         market = address(new Market(baseSymbol, quote, vault, oracle, priceFeed, msg.sender));
         Vault(vault).setMarket(market);
+        
+        allMarkets.push(market);
         emit MarketCreated(market, vault, baseSymbol, quote);
+    }
+
+    function getMarkets() external view returns (address[] memory) {
+        return allMarkets;
     }
 }
 

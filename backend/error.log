@@ -1,0 +1,6 @@
+
+> backend@1.0.0 build
+> tsc
+
+src/services/priceService.ts(88,40): error TS2722: Cannot invoke an object which is possibly 'undefined'.
+src/services/priceService.ts(88,40): error TS18048: 'marketContract.getMarkPrice' is possibly 'undefined'.

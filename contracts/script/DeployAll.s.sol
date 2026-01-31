@@ -17,6 +17,7 @@ import {LimitOrderProtocol} from "../src/limit_order/LimitOrderProtocol.sol";
 import {MockUSDC} from "../src/new_perp/src/mocks/MockUSDC.sol";
 import {MockOracle} from "../src/new_perp/src/mocks/MockOracle.sol";
 import {OracleModule} from "../src/new_perp/src/oracle/OracleModule.sol";
+import {DexPriceAdapter} from "../src/new_perp/src/oracle/DexPriceAdapter.sol";
 import {Router as PerpRouter} from "../src/new_perp/src/router/Router.sol";
 import {PositionManager} from "../src/new_perp/src/router/PositionManager.sol";
 import {MarketFactory as PerpMarketFactory} from "../src/new_perp/src/core/MarketFactory.sol";
@@ -144,11 +145,13 @@ contract DeployAll is Script {
         OracleModule oracleModule = new OracleModule();
         console.log("Perp OracleModule deployed at:", address(oracleModule));
 
-        // Mock Oracle (Chainlink style)
-        // Initial price: ETH = $3000 (8 decimals)
-        int256 initialEthPrice = 3000 * 1e8;
-        MockOracle paramOracle = new MockOracle(initialEthPrice);
-        console.log("MockOracle (ETH) deployed at:", address(paramOracle));
+        // DexPriceAdapter (Real DEX price)
+        address[] memory path = new address[](2);
+        path[0] = address(eth);
+        path[1] = address(usdc);
+        DexPriceAdapter dexAdapter = new DexPriceAdapter(address(ammRouter), path, 8);
+        address oracleAddress = address(dexAdapter);
+        console.log("DexPriceAdapter (ETH/USDC) deployed at:", oracleAddress);
 
         // Perp Router (Quote = USDC)
         PerpRouter perpRouter = new PerpRouter(address(usdc));
@@ -171,7 +174,7 @@ contract DeployAll is Script {
             "ETH",
             address(usdc),
             address(oracleModule),
-            address(paramOracle),
+            oracleAddress,
             address(positionManager)
         );
         console.log("ETH-PERP Market created at:", marketAddress);
@@ -179,6 +182,30 @@ contract DeployAll is Script {
 
         // Set PM in Market
         Market(marketAddress).setPositionManager(address(positionManager));
+        console.log("PositionManager set in ETH Market");
+
+        // --- Create BTC-PERP Market ---
+        console.log("\n--- Creating BTC-PERP Market ---");
+        // DexPriceAdapter for BTC
+        address[] memory pathBtc = new address[](2);
+        pathBtc[0] = address(btc);
+        pathBtc[1] = address(usdc);
+        DexPriceAdapter dexAdapterBtc = new DexPriceAdapter(address(ammRouter), pathBtc, 8);
+        address oracleAddressBtc = address(dexAdapterBtc);
+        console.log("DexPriceAdapter (BTC/USDC) deployed at:", oracleAddressBtc);
+
+        (address marketAddressBtc, address vaultAddressBtc) = perpMarketFactory.createMarket(
+            "BTC",
+            address(usdc),
+            address(oracleModule),
+            oracleAddressBtc,
+            address(positionManager)
+        );
+        console.log("BTC-PERP Market created at:", marketAddressBtc);
+        
+        // Set PM in BTC Market
+        Market(marketAddressBtc).setPositionManager(address(positionManager));
+        console.log("PositionManager set in BTC Market");
 
         // Seed Vault Liquidity
         // Approve USDC for Vault (Deployer has 10M, deposit 1M)
@@ -232,7 +259,7 @@ contract DeployAll is Script {
         console.log("VITE_PERP_MARKET_FACTORY_ADDRESS=%s", address(perpMarketFactory));
         console.log("VITE_PERP_MARKET_ETH_ADDRESS=%s", marketAddress);
         console.log("VITE_PERP_VAULT_ETH_ADDRESS=%s", vaultAddress);
-        console.log("VITE_PERP_ORACLE_ETH_ADDRESS=%s", address(paramOracle));
+        console.log("VITE_PERP_ORACLE_ETH_ADDRESS=%s", oracleAddress);
         console.log("");
         console.log("VITE_COPY_TRADING_FACTORY_ADDRESS=%s", address(copyFactory));
         console.log("VITE_COPY_TRADING_VAULT_IMPL_ADDRESS=%s", address(copyVaultImpl));

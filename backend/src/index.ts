@@ -1,11 +1,12 @@
+import 'dotenv/config';
+
 import app from './app.js';
+import chartRoutes from './routes/chartRoutes.js';
+import { priceService } from './services/priceService.js';
 import connectDB from './config/db.js';
 import BlockchainService from './services/BlockchainService.js';
 import { startPerpEventListener } from './services/PerpEventListener.js';
 import { LiquidationKeeper } from './keepers/LiquidationKeeper.js';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 // Global error handlers for unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
@@ -37,6 +38,8 @@ process.on('uncaughtException', (error) => {
 
 const PORT = process.env.PORT || 3000;
 
+app.use('/api/chart', chartRoutes);
+
 
 
 
@@ -52,7 +55,16 @@ connectDB().then(() => {
         console.error("Failed to start Perp Event Listener:", e);
     }
 
-    // // 2. Liquidation Keeper
+    // 2. Start Price Service (Candle Generator)
+    try {
+        priceService.start();
+        console.log("Price Service started");
+    } catch (e) {
+        console.error("Failed to start Price Service:", e);
+    }
+
+    // // 3. Liquidation Keeper
+
     // try {
     //     const keeper = new LiquidationKeeper();
     //     keeper.start();

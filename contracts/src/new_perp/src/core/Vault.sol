@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -14,7 +15,8 @@ interface IMarket {
 contract Vault is ERC20, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
-    IERC20 public immutable usdc; // 6 decimals token
+    IERC20 public immutable usdc;
+    uint256 public immutable quoteScale;
     address public market; // only market can pull funds
 
     error NotMarket();
@@ -28,6 +30,9 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
 
     constructor(address _usdc) ERC20("Perp LP", "pLP") Ownable(msg.sender) {
         usdc = IERC20(_usdc);
+        uint8 decimals = IERC20Metadata(_usdc).decimals();
+        require(decimals <= 18, "too many decimals");
+        quoteScale = 10**(18 - decimals);
     }
 
     /// @notice one-time market setter by owner/factory.
@@ -51,7 +56,7 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
 
         uint256 shares;
         if (_totalSupply == 0 || _totalAssets == 0) {
-            shares = amount * 1e12; // scale to 18-dec LP basis
+            shares = amount * quoteScale; // scale to 18-dec LP basis
         } else {
             shares = (amount * _totalSupply) / _totalAssets;
         }

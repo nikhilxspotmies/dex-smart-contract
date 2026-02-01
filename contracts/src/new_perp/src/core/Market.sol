@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -28,7 +28,8 @@ contract Market is ReentrancyGuard, Ownable {
     address public immutable priceFeed; // chainlink feed
 
     uint256 public constant WAD = 1e18;
-    uint256 public constant USDC_DECIMALS = 6;
+    uint256 public immutable quoteDecimals;
+    uint256 public immutable quoteScale;
     uint256 public constant FEE_BPS = 10; // 0.1%
     uint256 public constant BPS_DIV = 10_000;
     uint256 public constant MAINT_MARGIN_BPS = 500; // 5%
@@ -71,6 +72,9 @@ contract Market is ReentrancyGuard, Ownable {
     ) Ownable(_owner) {
         baseSymbol = _baseSymbol;
         quote = IERC20(_quote);
+        quoteDecimals = IERC20Metadata(_quote).decimals();
+        require(quoteDecimals <= 18, "too many decimals");
+        quoteScale = 10**(18 - quoteDecimals);
         vault = Vault(_vault);
         oracle = OracleModule(_oracle);
         priceFeed = _priceFeed;
@@ -349,9 +353,8 @@ contract Market is ReentrancyGuard, Ownable {
         return (int256(sizeDelta) * diff) / int256(WAD);
     }
 
-    function _usdToUsdc(uint256 usdWad) internal pure returns (uint256) {
-        // usdWad is 1e18, USDC 1e6 => divide by 1e12
-        return usdWad / 1e12;
+    function _usdToUsdc(uint256 usdWad) internal view returns (uint256) {
+        return usdWad / quoteScale;
     }
 
     // Admin setters

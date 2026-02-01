@@ -36,8 +36,19 @@ contract MarketFactory {
         address positionManager
     ) external onlyOwner returns (address market, address vault) {
         vault = address(new Vault(quote));
-        market = address(new Market(baseSymbol, quote, vault, oracle, priceFeed, msg.sender));
+        
+        // 1. Deploy Market with Factory as initial owner so it can configure it
+        market = address(new Market(baseSymbol, quote, vault, oracle, priceFeed, address(this)));
+        
         Vault(vault).setMarket(market);
+        
+        // 2. Set position manager for the market (Factory is owner, so this works)
+        if (positionManager != address(0)) {
+            Market(market).setPositionManager(positionManager);
+        }
+        
+        // 3. Transfer ownership to the caller (msg.sender)
+        Market(market).transferOwnership(msg.sender);
         
         allMarkets.push(market);
         emit MarketCreated(market, vault, baseSymbol, quote);

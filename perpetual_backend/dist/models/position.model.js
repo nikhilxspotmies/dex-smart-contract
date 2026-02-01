@@ -1,0 +1,4 @@
+/**
+ * Position model types
+ */
+export {};

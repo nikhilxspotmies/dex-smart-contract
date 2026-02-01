@@ -1,0 +1,867 @@
+﻿Compiling 12 files with Solc 0.8.30
+Solc 0.8.30 finished in 1.01s
+Compiler run successful!
+C:\Users\HP\.foundry\
+bin\forge : note[unal
+iased-plain-import]: 
+use named imports 
+'{A, B}' or alias 
+'import ".." as X'
+At line:1 char:1
++ C:\Users\HP\.foundr
+y\bin\forge build 
+2>&1 | Out-File 
+-FilePath build_ ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (note[un   
+ aliased-...port     
+".." as X':Strin    
+g) [], RemoteExc    
+eption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+ --> src\limit_order\
+LimitOrderProtocol.so
+l:4:8
+  |
+4 | import "@openzepp
+elin/contracts/token/
+ERC20/IERC20.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> 
+test\Dex.t.sol:4:8
+  |
+4 | import 
+"forge-std/Test.sol";
+  |        
+^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> script\Whitelist
+Token.s.sol:4:8
+  |
+4 | import "forge-std
+/Script.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> script\Whitelist
+Token.s.sol:5:8
+  |
+5 | import "../src/P2
+PTokenEscrow.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\P2PTokenEscr
+ow.sol:4:8
+  |
+4 | import "@openzepp
+elin/contracts/token/
+ERC20/utils/SafeERC20
+.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> test\CopyTrading
+.t.sol:4:8
+  |
+4 | import 
+"forge-std/Test.sol";
+  |        
+^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> test\CopyTrading
+.t.sol:5:8
+  |
+5 | import "../src/Co
+pyTrading.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> test\CopyTrading
+.t.sol:6:8
+  |
+6 | import 
+"../src/Dex.sol";
+  |        
+^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[asm-keccak256]: 
+use of inefficient 
+hashing mechanism; 
+consider using 
+inline assembly
+  --> 
+src\Dex.sol:40:24
+   |
+40 |         bytes32 
+salt = keccak256(abi.
+encodePacked(token0, 
+token1));
+   |                 
+       ^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#asm-keccak256
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> 
+test\Dex.t.sol:5:8
+  |
+5 | import 
+"../src/Dex.sol"; // 
+Adjust this path to 
+where your contract 
+file is!
+  |        
+^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> script\Whitelist
+Token.s.sol:6:8
+  |
+6 | import "@openzepp
+elin/contracts/mocks/
+token/ERC20Mock.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[screaming-snake-
+case-immutable]: 
+immutables should 
+use 
+SCREAMING_SNAKE_CASE
+  --> src\CopyTrading
+.sol:24:33
+   |
+24 |     IDexRouter 
+public immutable 
+dexRouter;
+   |                 
+                
+^^^^^^^^^ help: 
+consider using: 
+`DEX_ROUTER`
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#screaming-snake-cas
+e-immutable
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\limit_order\
+LimitOrderProtocol.so
+l:5:8
+  |
+5 | import "@openzepp
+elin/contracts/utils/
+cryptography/ECDSA.so
+l";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\limit_order\
+LimitOrderProtocol.so
+l:6:8
+  |
+6 | import "@openzepp
+elin/contracts/utils/
+cryptography/EIP712.s
+ol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\limit_order\
+LimitOrderProtocol.so
+l:7:8
+  |
+7 | import "@openzepp
+elin/contracts/token/
+ERC20/utils/SafeERC20
+.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> test\CopyTrading
+.t.sol:7:8
+  |
+7 | import "../src/Mo
+ckERC20.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+  --> src\CopyTrading
+.sol:44:5
+   |
+44 | /     modifier 
+onlyBot() {
+45 | |         
+require(msg.sender 
+== botAddress || 
+msg.sender == 
+owner(), "Not 
+authorized bot");
+46 | |         _;
+47 | |     }
+   | |_____^
+   |
+help: wrap modifier 
+logic to reduce code 
+size
+   |
+44 ~     modifier 
+onlyBot() {
+45 +         
+_onlyBot();
+46 +         _;
+47 +     }
+48 + 
+49 +     function 
+_onlyBot() internal {
+50 +         
+require(msg.sender 
+== botAddress || 
+msg.sender == 
+owner(), "Not 
+authorized bot");
+51 +     }
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#unwrapped-modifier-
+logic
+
+warning[erc20-uncheck
+ed-transfer]: ERC20 
+'transfer' and 
+'transferFrom' calls 
+should check the 
+return value
+  --> 
+test\Dex.t.sol:39:9
+   |
+39 |         tokenA.t
+ransfer(alice, 1000 
+ether);
+   |         ^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#erc20-unchecked-tra
+nsfer
+
+warning[erc20-uncheck
+ed-transfer]: ERC20 
+'transfer' and 
+'transferFrom' calls 
+should check the 
+return value
+  --> 
+test\Dex.t.sol:40:9
+   |
+40 |         tokenB.t
+ransfer(alice, 1000 
+ether);
+   |         ^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#erc20-unchecked-tra
+nsfer
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+  --> 
+src\Dex.sol:67:5
+   |
+67 | /     modifier 
+onlyPair() {
+68 | |         
+require(msg.sender 
+== pair, "Only 
+pair");
+69 | |         _;
+70 | |     }
+   | |_____^
+   |
+help: wrap modifier 
+logic to reduce code 
+size
+   |
+67 ~     modifier 
+onlyPair() {
+68 +         
+_onlyPair();
+69 +         _;
+70 +     }
+71 + 
+72 +     function 
+_onlyPair() internal 
+{
+73 +         
+require(msg.sender 
+== pair, "Only 
+pair");
+74 +     }
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#unwrapped-modifier-
+logic
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\P2PTokenEscr
+ow.sol:5:8
+  |
+5 | import "@openzepp
+elin/contracts/utils/
+ReentrancyGuard.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[asm-keccak256]: 
+use of inefficient 
+hashing mechanism; 
+consider using 
+inline assembly
+   --> src\limit_orde
+r\LimitOrderProtocol.
+sol:90:16
+    |
+ 90 |           
+return keccak256(
+    |  
+________________^
+ 91 | |             
+abi.encode(
+ 92 | |              
+   _ORDER_TYPEHASH,
+ 93 | |              
+   order.makerAsset,
+...   |
+101 | |         );
+    | |_________^
+    |
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#asm-keccak256
+
+note[mixed-case-varia
+ble]: mutable 
+variables should use 
+mixedCase
+   --> test\CopyTradi
+ng.t.sol:109:17
+    |
+109 |         
+uint256 noob1TKB = co
+pyTrading.getBucketBa
+lance(noob1, whale, 
+address(tokenB));
+    |                
+ ^^^^^^^^ help: 
+consider using: 
+`noob1Tkb`
+    |
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#mixed-case-variabl
+e
+
+warning[unsafe-typeca
+st]: typecasts that 
+can truncate values 
+should be checked
+   --> 
+src\Dex.sol:131:20
+    |
+131 |         
+reserve0 = 
+uint112(balance0);
+    |                
+    ^^^^^^^^^^^^^^^^^
+    |
+    = note: consider 
+disabling this lint 
+if you're certain 
+the cast is safe
+            
+            // 
+casting to 'uint112' 
+is safe because 
+[explain why]
+            // 
+forge-lint: disable-n
+ext-line(unsafe-typec
+ast)
+            
+            
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#unsafe-typecast
+
+warning[unsafe-typeca
+st]: typecasts that 
+can truncate values 
+should be checked
+   --> 
+src\Dex.sol:132:20
+    |
+132 |         
+reserve1 = 
+uint112(balance1);
+    |                
+    ^^^^^^^^^^^^^^^^^
+    |
+    = note: consider 
+disabling this lint 
+if you're certain 
+the cast is safe
+            
+            // 
+casting to 'uint112' 
+is safe because 
+[explain why]
+            // 
+forge-lint: disable-n
+ext-line(unsafe-typec
+ast)
+            
+            
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#unsafe-typecast
+
+note[unaliased-plain-
+import]: use named 
+imports '{A, B}' or 
+alias 'import ".." 
+as X'
+ --> src\P2PTokenEscr
+ow.sol:6:8
+  |
+6 | import "@openzepp
+elin/contracts/access
+/Ownable.sol";
+  |        ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^
+  |
+  = help: https://boo
+k.getfoundry.sh/refer
+ence/forge/forge-lint
+#unaliased-plain-impo
+rt
+
+note[mixed-case-varia
+ble]: mutable 
+variables should use 
+mixedCase
+   --> test\CopyTradi
+ng.t.sol:110:17
+    |
+110 |         
+uint256 noob2TKB = co
+pyTrading.getBucketBa
+lance(noob2, whale, 
+address(tokenB));
+    |                
+ ^^^^^^^^ help: 
+consider using: 
+`noob2Tkb`
+    |
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#mixed-case-variabl
+e
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+   --> 
+src\Dex.sol:270:5
+    |
+270 | /     modifier 
+ensure(uint 
+deadline) {
+271 | |         requi
+re(block.timestamp 
+<= deadline, 
+"EXPIRED");
+272 | |         _;
+273 | |     }
+    | |_____^
+    |
+help: wrap modifier 
+logic to reduce code 
+size
+    |
+270 ~     modifier 
+ensure(uint 
+deadline) {
+271 +         
+_ensure(deadline);
+272 +         _;
+273 +     }
+274 + 
+275 +     function 
+_ensure(uint 
+deadline) internal {
+276 +         require
+(block.timestamp <= 
+deadline, "EXPIRED");
+277 +     }
+    |
+    = help: https://b
+ook.getfoundry.sh/ref
+erence/forge/forge-li
+nt#unwrapped-modifier
+-logic
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+  --> src\P2PTokenEsc
+row.sol:70:5
+   |
+70 | /     modifier 
+validListing(uint256 
+_listingId) {
+71 | |         
+require(_listingId < 
+listings.length, 
+"Invalid listing 
+ID");
+72 | |         _;
+73 | |     }
+   | |_____^
+   |
+help: wrap modifier 
+logic to reduce code 
+size
+   |
+70 ~     modifier 
+validListing(uint256 
+_listingId) {
+71 +         _validLi
+sting(_listingId);
+72 +         _;
+73 +     }
+74 + 
+75 +     function _va
+lidListing(uint256 
+_listingId) internal 
+{
+76 +         
+require(_listingId < 
+listings.length, 
+"Invalid listing 
+ID");
+77 +     }
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#unwrapped-modifier-
+logic
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+  --> src\P2PTokenEsc
+row.sol:75:5
+   |
+75 | /     modifier v
+alidPurchase(uint256 
+_purchaseId) {
+76 | |         
+require(_purchaseId 
+< purchases.length, 
+"Invalid purchase 
+ID");
+77 | |         _;
+78 | |     }
+   | |_____^
+   |
+help: wrap modifier 
+logic to reduce code 
+size
+   |
+75 ~     modifier val
+idPurchase(uint256 
+_purchaseId) {
+76 +         _validPu
+rchase(_purchaseId);
+77 +         _;
+78 +     }
+79 + 
+80 +     function _va
+lidPurchase(uint256 
+_purchaseId) 
+internal {
+81 +         
+require(_purchaseId 
+< purchases.length, 
+"Invalid purchase 
+ID");
+82 +     }
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#unwrapped-modifier-
+logic
+
+note[unwrapped-modifi
+er-logic]: wrap 
+modifier logic to 
+reduce code size
+  --> src\P2PTokenEsc
+row.sol:80:5
+   |
+80 | /     modifier o
+nlyListingSeller(uint
+256 _listingId) {
+81 | |         requir
+e(listings[_listingId
+].seller == 
+msg.sender, "Only 
+seller can perform 
+this");
+82 | |         _;
+83 | |     }
+   | |_____^
+   |
+help: wrap modifier 
+logic to reduce code 
+size
+   |
+80 ~     modifier onl
+yListingSeller(uint25
+6 _listingId) {
+81 +         _onlyLis
+tingSeller(_listingId
+);
+82 +         _;
+83 +     }
+84 + 
+85 +     function _on
+lyListingSeller(uint2
+56 _listingId) 
+internal {
+86 +         require(
+listings[_listingId].
+seller == 
+msg.sender, "Only 
+seller can perform 
+this");
+87 +     }
+   |
+   = help: https://bo
+ok.getfoundry.sh/refe
+rence/forge/forge-lin
+t#unwrapped-modifier-
+logic
+

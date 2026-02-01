@@ -1,0 +1,14 @@
+﻿Compiling 6 files with Solc 0.8.30
+Solc 0.8.30 finished in 6.94s
+Compiler run successful!
+
+Ran 6 tests for test/LimitOrder.t.sol:LimitOrderTest
+[PASS] testCancelOrder() (gas: 50944)
+[PASS] testExpiredOrder() (gas: 23400)
+[PASS] testFillOrderWithPermit() (gas: 167011)
+[PASS] testFullFill() (gas: 135412)
+[PASS] testInvalidSignature() (gas: 30541)
+[PASS] testPartialFill() (gas: 158831)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 27.65ms (67.11ms CPU time)
+
+Ran 1 test suite in 41.26ms (27.65ms CPU time): 6 tests passed, 0 failed, 0 skipped (6 total tests)

@@ -381,11 +381,19 @@ export class MatchingEngine {
             const askSymbol = askToken ? askToken.symbol : ask.makerAsset;
             const bidSymbol = bidToken ? bidToken.symbol : bid.makerAsset;
 
+            const askDecimals = askToken ? askToken.decimals : 18;
+            const bidDecimals = bidToken ? bidToken.decimals : 18;
+
             // Price of Ask Asset (Base) in terms of Bid Asset (Quote)
             // Ask Asset is the one being sold by the Ask maker (MakerAsset of Ask)
             // Bid Asset is the one being sold by the Bid maker (MakerAsset of Bid) which is the "Payment"
             // Price = Amount(Payment) / Amount(Sold) = matchSizeTKB / matchSizeTKA
-            const price = Number(matchSizeTKB) / Number(matchSizeTKA);
+
+            // Normalize amounts with decimals
+            const amountBase = Number(matchSizeTKA) / Math.pow(10, askDecimals);
+            const amountQuote = Number(matchSizeTKB) / Math.pow(10, bidDecimals);
+
+            const price = amountQuote / amountBase;
 
             const key = `${askSymbol}-${bidSymbol}`;
             lastTradedPrices.set(key, price.toString());

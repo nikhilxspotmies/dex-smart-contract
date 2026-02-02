@@ -2,6 +2,7 @@
 import dotenv from 'dotenv';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
+import User from '../models/User.js';
 // @ts-ignore
 import fs from 'fs';
 import path from 'path';
@@ -28,6 +29,7 @@ dotenv.config();
 class BlockchainService {
     private account: any;
     private contract: any;
+    private factoryContract: any;
     private isListening: boolean = false;
 
     constructor() {
@@ -51,6 +53,14 @@ class BlockchainService {
             chain: chain,
             address: contractAddress,
             abi: SC_ABI
+        });
+
+        // Initialize Copy Trading Factory
+        const factoryAddress = process.env.COPY_TRADING_FACTORY_ADDRESS || "0xe6e340d132b5f46d1e472debcd681b2abc16e57e";
+        this.factoryContract = getContract({
+            client: client,
+            chain: chain,
+            address: factoryAddress,
         });
 
         console.log("BlockchainService Initialized with Thirdweb SDK");
@@ -115,6 +125,21 @@ class BlockchainService {
                     });
                 }
             });
+
+            // Watch Copy Trading Factory Events
+            watchContractEvents({
+                contract: this.factoryContract,
+                events: [{
+                    signature: "event VaultCreated(address indexed user, address indexed vault)"
+                }],
+                onEvents: async (events) => {
+                    for (const event of events) {
+                        const { user, vault } = event.args;
+                        console.log(`[CopyTrading] VaultCreated: User ${user}, Vault ${vault}`);
+                        await this.rewardFirstTrade(user, "CopyTrading Vault");
+                    }
+                }
+            });
         } catch (error: any) {
             console.error("Failed to start blockchain event listener (synchronous error):", error);
             console.error("Error details:", JSON.stringify(error, null, 2));
@@ -141,7 +166,7 @@ class BlockchainService {
                     // Don't reset isListening or retry - the listener is still active for new events
                     return;
                 }
-                
+
                 console.error("Error in watchContractEvents promise:", error);
                 console.error("Error code:", error?.code);
                 console.error("Error message:", error?.message);
@@ -185,7 +210,6 @@ class BlockchainService {
                 const price = toTokens(pricePerToken, 18);
 
                 console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
-                console.log(`Event: ListingCreated - ID: ${lId}, Seller: ${seller}, Price: ${price}`);
 
                 await Listing.findOneAndUpdate(
                     { listingId: lId },
@@ -201,6 +225,27 @@ class BlockchainService {
                     { upsert: true, new: true }
                 );
                 console.log(`Listing ${lId} indexed/updated.`);
+
+                // Referral Logic: Reward referrer if this is the seller's first "sell activity"
+                try {
+                    const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${seller}$`, 'i') } });
+
+                    if (currentUser && !currentUser.hasDoneFirstTrade) {
+                        if (currentUser.referredBy) {
+                            const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
+                            if (referrer) {
+                                referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                                await referrer.save();
+                                console.log(`Referral Reward (P2P Listing): ${referrer.walletAddress} received 100 points for referring ${seller}`);
+                            }
+                        }
+                        currentUser.hasDoneFirstTrade = true;
+                        await currentUser.save();
+                        console.log(`User ${seller} marked as having done first trade (via Listing)`);
+                    }
+                } catch (refError) {
+                    console.error("Referral Logic Error (P2P Listing Event):", refError);
+                }
             }
             else if (eventName === "PurchaseProposed") {
                 const { purchaseId, listingId, buyer, quantity, pricePerToken } = args;
@@ -209,7 +254,6 @@ class BlockchainService {
                 const q = toTokens(quantity, 18);
                 const p = toTokens(pricePerToken, 18);
 
-                console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
                 console.log(`Event: PurchaseProposed - PurchaseID: ${pId}, ListingID: ${lId}, Buyer: ${buyer}`);
 
                 // Always fetch the latest listing data to ensure we have the correct seller
@@ -274,6 +318,28 @@ class BlockchainService {
 
         } catch (error) {
             console.error("Error processing event:", error);
+        }
+    }
+
+    private async rewardFirstTrade(walletAddress: string, source: string) {
+        try {
+            const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } });
+
+            if (currentUser && !currentUser.hasDoneFirstTrade) {
+                if (currentUser.referredBy) {
+                    const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
+                    if (referrer) {
+                        referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                        await referrer.save();
+                        console.log(`Referral Reward (${source}): ${referrer.walletAddress} received 100 points for referring ${walletAddress}`);
+                    }
+                }
+                currentUser.hasDoneFirstTrade = true;
+                await currentUser.save();
+                console.log(`User ${walletAddress} marked as having done first trade (via ${source})`);
+            }
+        } catch (error) {
+            console.error(`Error in rewardFirstTrade (${source}):`, error);
         }
     }
 }

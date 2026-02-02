@@ -10,6 +10,10 @@ export interface IUser extends Document {
 
     walletAddress: string;
     createdAt: Date;
+    referralCode?: string;
+    referredBy?: string;
+    referralPoints?: number;
+    hasDoneFirstTrade?: boolean;
 }
 
 const UserSchema: Schema = new Schema({
@@ -20,7 +24,12 @@ const UserSchema: Schema = new Schema({
 
     email: { type: String, required: true, unique: true },
     walletAddress: { type: String, required: true, unique: true },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+
+    referralCode: { type: String, unique: true, sparse: true },
+    referredBy: { type: String, required: false }, // Stores the walletAddress of the referrer
+    referralPoints: { type: Number, default: 0 },
+    hasDoneFirstTrade: { type: Boolean, default: false }
 
 });
 

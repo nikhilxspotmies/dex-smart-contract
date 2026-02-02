@@ -239,6 +239,10 @@ export const getLastPrice = async (req: Request, res: Response) => {
     }
 };
 
+export const getDebugOrders = async (req: Request, res: Response) => {
+    return res.status(200).json(orders);
+};
+
 export const deleteOrder = async (req: Request, res: Response) => {
     try {
         const { orderHash, signature } = req.body;

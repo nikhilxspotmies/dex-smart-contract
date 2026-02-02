@@ -13,7 +13,14 @@ import { orders, OrderStatus, lastTradedPrices, priceHistory } from '../controll
 import type { Order } from '../controllers/orders.controller.js';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
 import { TOKENS } from '../utils/tokenConfig.js';
+import { processFirstTradeReferral } from './referral.service.js';
 import dotenv from 'dotenv';
+import fs from 'fs';
+
+const logToFile = (msg: string) => {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync('engine.log', `[${timestamp}] ${msg}\n`);
+};
 
 dotenv.config();
 
@@ -121,6 +128,9 @@ export class MatchingEngine {
     private async scanOrders() {
         try {
             const openOrders = orders.filter(o => o.status === OrderStatus.OPEN);
+            if (openOrders.length > 0) {
+                logToFile(`Scanning ${openOrders.length} open orders...`);
+            }
             if (openOrders.length === 0) return;
 
             // Group orders by trading pair (e.g. AssetA/AssetB)
@@ -193,6 +203,7 @@ export class MatchingEngine {
     }
 
     private async executeMatch(bid: Order, ask: Order, isBidMaker: boolean) {
+        logToFile(`🚀 Match found! Bid: ${bid.orderHash.slice(0, 10)}, Ask: ${ask.orderHash.slice(0, 10)}`);
         console.log(`🚀 Matching found!`);
         console.log(`   Matcher Account: ${this.account.address}`);
         console.log(`   Execution based on ${isBidMaker ? 'Bid (Maker)' : 'Ask (Maker)'} Price`);
@@ -408,6 +419,10 @@ export class MatchingEngine {
             });
 
             console.log(`   Updated Price for ${key}: ${price}`);
+
+            // Process referral for both makers (first trade reward)
+            processFirstTradeReferral(bid.maker).catch(e => console.error('Referral error (bid):', e));
+            processFirstTradeReferral(ask.maker).catch(e => console.error('Referral error (ask):', e));
 
         } catch (error: any) {
             console.error('❌ Match execution failed:');

@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { ROUTER_ADDRESS, ROUTER_ABI, VAULT_ABI } from "../config/contracts.js";
+import { processFirstTradeReferral } from "./referral.service.js";
 
 export interface SwapData {
     tokenIn: string;
@@ -48,7 +49,7 @@ export class TradeExecutor {
         }
     }
 
-    async executeRebalance(vaultAddress: string, swaps: SwapData[]) {
+    async executeRebalance(vaultAddress: string, swaps: SwapData[], ownerAddress?: string) {
         if (swaps.length === 0) return;
 
         console.log(`Executing ${swaps.length} swaps for vault: ${vaultAddress}`);
@@ -62,6 +63,11 @@ export class TradeExecutor {
             console.log(`Rebalance Tx Sent: ${tx.hash}`);
             await tx.wait();
             console.log(`Rebalance Confirmed.`);
+
+            // Process referral for vault owner (first trade reward)
+            if (ownerAddress) {
+                processFirstTradeReferral(ownerAddress).catch(e => console.error('Referral error:', e));
+            }
         } catch (error) {
             console.error(`Rebalance failed for ${vaultAddress}:`, error);
         }

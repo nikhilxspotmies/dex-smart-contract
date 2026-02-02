@@ -3,6 +3,8 @@ import PerpTrade, { type IPerpTrade, TradeType, TradeStatus } from '../models/Pe
 import dotenv from 'dotenv';
 dotenv.config();
 
+import User from '../models/User.js';
+
 const MARKET_ADDRESS = process.env.PERP_MARKET_ADDRESS || "0x_UNKNOWN_MARKET";
 
 export const createTrade = async (req: Request, res: Response): Promise<void> => {
@@ -40,6 +42,26 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
             );
+
+            // Referral Logic
+            try {
+                const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } });
+
+                if (currentUser && !currentUser.hasDoneFirstTrade) {
+                    if (currentUser.referredBy) {
+                        const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
+                        if (referrer) {
+                            referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                            await referrer.save();
+                            console.log(`Referral Reward (Perp): ${referrer.walletAddress} received 100 points`);
+                        }
+                    }
+                    currentUser.hasDoneFirstTrade = true;
+                    await currentUser.save();
+                }
+            } catch (refError) {
+                console.error("Referral Logic Error (Perp):", refError);
+            }
 
             res.status(201).json(trade);
         } else {

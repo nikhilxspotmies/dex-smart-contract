@@ -1,6 +1,7 @@
 import { prepareEvent, getContractEvents, getContract, watchContractEvents } from "thirdweb";
 import { client, chain } from "../utils/client.js";
 import PerpTrade, { TradeStatus } from "../models/PerpTrade.js";
+import User from "../models/User.js";
 import { config } from "dotenv";
 
 config();
@@ -179,6 +180,26 @@ async function handlePositionIncreased(args: any, txHash: string, blockNumber: b
             trade.lastUpdatedBlock = Number(blockNumber);
             const savedTrade = await trade.save();
             console.log(`[DB] Updated position ${positionId}. Saved Size: ${savedTrade.size}, Collateral: ${savedTrade.collateral}`);
+        }
+
+        // Referral Logic: Reward referrer if this is the user's first trade
+        try {
+            const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${user}$`, 'i') } });
+
+            if (currentUser && !currentUser.hasDoneFirstTrade) {
+                if (currentUser.referredBy) {
+                    const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
+                    if (referrer) {
+                        referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                        await referrer.save();
+                        console.log(`Referral Reward (Futures): ${referrer.walletAddress} received 100 points for referring ${user}`);
+                    }
+                }
+                currentUser.hasDoneFirstTrade = true;
+                await currentUser.save();
+            }
+        } catch (refError) {
+            console.error("Referral Logic Error (Futures Event):", refError);
         }
     } catch (err) {
         console.error("Error handling PositionIncreased:", err);

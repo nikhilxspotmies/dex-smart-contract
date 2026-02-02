@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import BlockchainService from '../services/BlockchainService.js';
 import Trade from '../models/Trade.js';
+import User from '../models/User.js';
 import Complaint from '../models/Complaint.js';
 
 
@@ -30,6 +31,30 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
             pricePerToken: Number(pricePerToken),
             status: 'Locked'
         });
+
+        // Referral Logic: Reward referrer if this is the first trade for buyer or seller
+        const processReferral = async (address: string, role: string) => {
+            try {
+                const user = await User.findOne({ walletAddress: { $regex: new RegExp(`^${address}$`, 'i') } });
+                if (user && !user.hasDoneFirstTrade) {
+                    if (user.referredBy) {
+                        const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${user.referredBy}$`, 'i') } });
+                        if (referrer) {
+                            referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                            await referrer.save();
+                            console.log(`Referral Reward (P2P ${role}): ${referrer.walletAddress} received 100 points for referring ${address}`);
+                        }
+                    }
+                    user.hasDoneFirstTrade = true;
+                    await user.save();
+                }
+            } catch (refError) {
+                console.error(`Referral Logic Error (P2P ${role}):`, refError);
+            }
+        };
+
+        await processReferral(buyer, 'Buyer');
+        await processReferral(seller, 'Seller');
 
         res.status(201).json(newTrade);
     } catch (error: any) {

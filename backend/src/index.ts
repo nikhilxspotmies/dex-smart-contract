@@ -85,7 +85,9 @@ app.listen(PORT, () => {
 
 
 // Start Blockchain Listeners
-// BlockchainService.startEventListener().catch((error) => {
+// BlockchainService.startEventListener().then(() => {
+//     console.log("Blockchain Event Listeners active (P2P + CopyTrading)");
+// }).catch((error) => {
 //     console.error('Failed to start blockchain event listener:', error);
 //     // Don't exit immediately, let it retry
 //     console.log('Event listener will retry automatically...');

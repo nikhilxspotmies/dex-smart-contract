@@ -89,7 +89,7 @@ async function runEngine() {
 
             // 5. Execute Trades
             if (swaps.length > 0) {
-                await tradeExecutor.executeRebalance(vault.address, swaps);
+                await tradeExecutor.executeRebalance(vault.address, swaps, vault.owner);
             }
         }
 

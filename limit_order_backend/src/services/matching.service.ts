@@ -8,7 +8,7 @@ import {
     getContract
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { localhost, mainnet } from 'viem/chains';
+import { localhost, mainnet, bsc } from 'viem/chains';
 import { orders, OrderStatus, lastTradedPrices, priceHistory } from '../controllers/orders.controller.js';
 import type { Order } from '../controllers/orders.controller.js';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
@@ -73,7 +73,7 @@ export class MatchingEngine {
         }
 
         this.account = privateKeyToAccount(MATCHER_PRIVATE_KEY);
-        const chain = CHAIN_ID === 31337 ? localhost : mainnet;
+        const chain = CHAIN_ID === 56 ? bsc : (CHAIN_ID === 31337 ? localhost : mainnet);
 
         this.publicClient = createPublicClient({
             chain,
@@ -111,7 +111,7 @@ export class MatchingEngine {
                 console.log(`✅ Clients adjusted to Chain ID: ${networkChainId}`);
             } else {
                 // Even if it matches, ensure we use the explicit chain object to avoid localhost:1337 default
-                const chain = { ...localhost, id: CHAIN_ID };
+                const chain = CHAIN_ID === 56 ? bsc : (CHAIN_ID === 31337 ? { ...localhost, id: CHAIN_ID } : mainnet);
                 this.publicClient = createPublicClient({ chain: chain as any, transport: http() });
                 this.walletClient = createWalletClient({ account: this.account, chain: chain as any, transport: http() });
             }

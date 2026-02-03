@@ -8,27 +8,20 @@ export interface Token {
 }
 
 // Updated with deployed contract addresses matching frontend
+// Updated with deployed contract addresses matching frontend
 export const TOKENS: Token[] = [
     {
         symbol: "USDC",
         name: "USD Coin",
-        address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
         logo: "US",
-        decimals: 6,
-        balance: "1000.0"
-    },
-    {
-        symbol: "BTC",
-        name: "Bitcoin",
-        address: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-        logo: "B",
-        decimals: 18,
+        decimals: 18, // BSC-Pegged USDC has 18 decimals
         balance: "1000.0"
     },
     {
         symbol: "ETH",
         name: "Ethereum",
-        address: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+        address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
         logo: "E",
         decimals: 18,
         balance: "1000.0"

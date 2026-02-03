@@ -204,6 +204,7 @@ export const getOrderbook = async (req: Request, res: Response) => {
 export const getLastPrice = async (req: Request, res: Response) => {
     try {
         const { symbol, base, quote } = req.query;
+        console.log(`📡 GET /last-price params:`, req.query);
 
         let key = symbol as string;
         let inverseKey = "";
@@ -241,6 +242,25 @@ export const getLastPrice = async (req: Request, res: Response) => {
 
 export const getDebugOrders = async (req: Request, res: Response) => {
     return res.status(200).json(orders);
+};
+
+export const getUserOrders = async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+
+        if (!address) {
+            return res.status(400).json({ error: 'Address is required' });
+        }
+
+        const userOrders = orders
+            .filter(o => o.maker.toLowerCase() === address.toLowerCase())
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+        return res.status(200).json(userOrders);
+    } catch (error) {
+        console.error('Get user orders error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
 };
 
 export const deleteOrder = async (req: Request, res: Response) => {

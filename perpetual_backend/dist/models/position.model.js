@@ -1,4 +1,0 @@
-/**
- * Position model types
- */
-export {};

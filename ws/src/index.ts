@@ -15,8 +15,8 @@ dotenv.config();
 
 const app = express();
 app.use(cors({
-    origin:"*"
-} ));
+    origin: "*"
+}));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -106,7 +106,7 @@ io.on("connection", (socket) => {
     });
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3003;
 server.listen(PORT, () => {
     console.log(`WebSocket Server running on port ${PORT}`);
 });

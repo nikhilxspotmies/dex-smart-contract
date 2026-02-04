@@ -21,7 +21,7 @@ export const TOKENS: Token[] = [
     {
         symbol: "ETH",
         name: "Ethereum",
-        address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
+        address: "0xa2E3356610840701BDf5611a53974510Ae27E2e1",
         logo: "E",
         decimals: 18,
         balance: "1000.0"

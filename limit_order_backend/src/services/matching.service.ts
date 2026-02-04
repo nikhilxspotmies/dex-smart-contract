@@ -190,9 +190,9 @@ export class MatchingEngine {
                     for (const ask of sortedAsks) {
                         if (ask.status === OrderStatus.FILLED) continue;
 
-                        // Bid Price: Quote (TKB) / Base (TKA) => bid.makingAmount / bid.takingAmount
+                        // Bid Price: Quote (USDC) / Base (ETH) => bid.makingAmount / bid.takingAmount
                         const bidPriceB = Number(bid.makingAmount) / Number(bid.takingAmount);
-                        // Ask Price: Quote (TKB) / Base (TKA) => ask.takingAmount / ask.makingAmount
+                        // Ask Price: Quote (USDC) / Base (ETH) => ask.takingAmount / ask.makingAmount
                         const askPriceB = Number(ask.takingAmount) / Number(ask.makingAmount);
 
                         if (bidPriceB >= askPriceB) {
@@ -344,7 +344,7 @@ export class MatchingEngine {
                 matchSizeTKB = (BigInt(ask.takingAmount) * matchSizeTKA) / BigInt(ask.makingAmount);
             }
 
-            console.log(`   Match Size: ${matchSizeTKA} TKA <-> ${matchSizeTKB} TKB`);
+            console.log(`   Match Size: ${matchSizeTKA} ETH <-> ${matchSizeTKB} USDC`);
 
             // 1. Fill the Ask (Seller sells TKA, receives TKB)
             // Contract fillOrder(order, signature, fillAmount) -> fillAmount is makerAsset (TKA)

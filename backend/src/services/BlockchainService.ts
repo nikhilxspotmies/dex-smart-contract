@@ -13,7 +13,8 @@ import {
     sendTransaction,
     watchContractEvents,
     toTokens,
-    waitForReceipt
+    waitForReceipt,
+    prepareEvent
 } from "thirdweb";
 import { privateKeyToAccount } from "thirdweb/wallets";
 import { client, chain } from "../utils/client.js";
@@ -127,11 +128,13 @@ class BlockchainService {
             });
 
             // Watch Copy Trading Factory Events
+            const vaultCreatedEvent = prepareEvent({
+                signature: "event VaultCreated(address indexed user, address indexed vault)"
+            });
+
             watchContractEvents({
                 contract: this.factoryContract,
-                events: [{
-                    signature: "event VaultCreated(address indexed user, address indexed vault)"
-                }],
+                events: [vaultCreatedEvent],
                 onEvents: async (events) => {
                     for (const event of events) {
                         const { user, vault } = event.args;

@@ -32,7 +32,7 @@ contract DeployNewPerpBSC is Script {
         // Base token address (needed for DexPriceAdapter path)
         address baseToken;
         if (keccak256(bytes(baseSymbol)) == keccak256(bytes("ETH"))) {
-            baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0x2170Ed0880ac9A755fd29B2688956BD959F933F8));
+            baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0xa2E3356610840701BDf5611a53974510Ae27E2e1));
         } else if (keccak256(bytes(baseSymbol)) == keccak256(bytes("BTC"))) {
             baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c));
         } else {

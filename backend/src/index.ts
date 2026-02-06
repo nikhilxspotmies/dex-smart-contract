@@ -7,6 +7,7 @@ import connectDB from './config/db.js';
 import BlockchainService from './services/BlockchainService.js';
 import { startPerpEventListener } from './services/PerpEventListener.js';
 import { LiquidationKeeper } from './keepers/LiquidationKeeper.js';
+import { RequestKeeper } from './keepers/RequestKeeper.js';
 
 // Global error handlers for unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
@@ -63,7 +64,16 @@ connectDB().then(() => {
         console.error("Failed to start Price Service:", e);
     }
 
-    // // 3. Liquidation Keeper
+    // 3. Request Keeper
+    try {
+        const requestKeeper = new RequestKeeper();
+        requestKeeper.start();
+        console.log("Request Keeper started");
+    } catch (e) {
+        console.error("Failed to start Request Keeper:", e);
+    }
+
+    // // 4. Liquidation Keeper
 
     // try {
     //     const keeper = new LiquidationKeeper();

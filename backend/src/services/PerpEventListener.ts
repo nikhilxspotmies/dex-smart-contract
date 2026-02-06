@@ -126,6 +126,32 @@ export const startPerpEventListener = () => {
         },
     });
 
+    // 4. Request Created (From Router)
+    const ROUTER_ADDRESS = process.env.PERP_ROUTER_ADDRESS;
+    if (ROUTER_ADDRESS) {
+        const routerContract = getContract({
+            client,
+            chain,
+            address: ROUTER_ADDRESS,
+        });
+
+        const requestCreatedEvent = prepareEvent({
+            signature: "event RequestCreated(uint256 indexed id, address indexed user, address indexed market, bool isIncrease)"
+        });
+
+        watchContractEvents({
+            contract: routerContract,
+            events: [requestCreatedEvent],
+            onEvents: async (events) => {
+                for (const event of events) {
+                    console.log("RequestCreated Event:", event.args);
+                    // We don't necessarily need a handler if the Keeper is polling, 
+                    // but for observability we can log it.
+                }
+            },
+        });
+    }
+
     return { unwatchIncreased, unwatchDecreased, unwatchLiquidated };
 };
 

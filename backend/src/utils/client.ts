@@ -14,3 +14,9 @@ export const chain = defineChain({
   name: "Binance Smart Chain",
   rpc: process.env.RPC_URL || "https://bsc-dataseed.binance.org/",
 });
+
+export const p2pChain = defineChain({
+  id: 56,
+  name: "Binance Smart Chain (P2P)",
+  rpc: process.env.P2P_RPC_URL || "https://bsc-dataseed.binance.org/",
+});

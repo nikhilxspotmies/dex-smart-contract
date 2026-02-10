@@ -57,21 +57,21 @@ export const ERC20_ABI = [
 // --- Whitelist ---
 // Updated to match the Integration Script Mocks if possible, or generic placeholders
 export const WHITELIST = {
-    "TKNA": {
+    "USDC": {
         // Replace with deployed Token A address
         address: process.env.TOKEN_A_ADDRESS || "0x0000000000000000000000000000000000000000",
         decimals: 18,
-        symbol: "TKNA"
+        symbol: "USDC"
     },
-    "TKNB": {
+    "ETH": {
         // Replace with deployed Token B address
         address: process.env.TOKEN_B_ADDRESS || "0x0000000000000000000000000000000000000000",
         decimals: 18,
-        symbol: "TKNB"
+        symbol: "ETH"
     }
 };
 
 // Base Token for Pricing (USD-like or Native)
-// For this demo, let's assume TKNB is the "Quote" token (like USDC)
-export const QUOTE_TOKEN_ADDRESS = WHITELIST.TKNB.address;
+// For this demo, let's assume ETH is the "Quote" token (like USDC)
+export const QUOTE_TOKEN_ADDRESS = WHITELIST.ETH.address;
 export const QUOTE_TOKEN_DECIMALS = 18;

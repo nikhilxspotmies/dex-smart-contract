@@ -17,7 +17,7 @@ import {
     prepareEvent
 } from "thirdweb";
 import { privateKeyToAccount } from "thirdweb/wallets";
-import { client, chain } from "../utils/client.js";
+import { client, chain, p2pChain } from "../utils/client.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,7 +51,7 @@ class BlockchainService {
         // Initialize Contract
         this.contract = getContract({
             client: client,
-            chain: chain,
+            chain: p2pChain,
             address: contractAddress,
             abi: SC_ABI
         });
@@ -90,7 +90,7 @@ class BlockchainService {
         try {
             const receipt = await waitForReceipt({
                 client: client,
-                chain: chain,
+                chain: p2pChain,
                 transactionHash: transactionHash
             });
             console.log(`Purchase ${purchaseId} release confirmed in block ${receipt.blockNumber}.`);

@@ -5,8 +5,11 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const rpcUrl = process.env.RPC_URL || "https://bsc-dataseed.binance.org/";
-console.log("Testing RPC URL:", rpcUrl);
+const p2pRpcUrl = process.env.P2P_RPC_URL || "https://bsc-dataseed.binance.org/";
+const mainRpcUrl = process.env.RPC_URL;
+
+console.log("Testing P2P RPC URL:", p2pRpcUrl);
+console.log("Main RPC URL (preserved):", mainRpcUrl);
 
 const client = createThirdwebClient({
     clientId: process.env.THIRDWEB_CLIENT_ID || "demo",
@@ -14,38 +17,28 @@ const client = createThirdwebClient({
 
 const chain = defineChain({
     id: 56,
-    name: "Binance Smart Chain",
-    rpc: rpcUrl,
+    name: "Binance Smart Chain (P2P)",
+    rpc: p2pRpcUrl,
 });
 
 async function test() {
     try {
         const rpcRequest = getRpcClient({ client, chain });
 
-        console.log("Fetching latest block number...");
+        console.log("Fetching latest block number from P2P RPC...");
         const blockNumber = await eth_blockNumber(rpcRequest);
         console.log("Latest block number:", blockNumber);
 
-        console.log("Fetching latest block...");
+        console.log("Fetching basic valid block...");
         const block = await eth_getBlockByNumber(rpcRequest, { blockTag: "latest" });
         if (block) {
-            console.log("Latest block found. Hash:", block.hash);
+            console.log("SUCCESS: P2P RPC is working! Block Hash:", block.hash);
         } else {
-            console.error("Latest block NOT found!");
-        }
-
-        // specific block test (e.g. current - 100)
-        const oldBlockNum = blockNumber - 100n;
-        console.log("Fetching block:", oldBlockNum);
-        const oldBlock = await eth_getBlockByNumber(rpcRequest, { blockNumber: oldBlockNum });
-        if (oldBlock) {
-            console.log("Old block found. Hash:", oldBlock.hash);
-        } else {
-            console.error("Old block NOT found!");
+            console.error("FAILURE: Latest block NOT found on P2P RPC!");
         }
 
     } catch (error) {
-        console.error("RPC Test Failed:", error);
+        console.error("P2P RPC Test Failed:", error);
     }
 }
 

@@ -83,7 +83,17 @@ async function runEngine() {
                             vault.address
                         );
                         if (swap) swaps.push(swap);
+                    } else {
+                        console.log(`[Info] Sell amount too small for ${sellDev.symbol}`);
                     }
+                } else {
+                    console.log(`[Info] Vault has 0 balance of ${sellDev.symbol}, cannot sell.`);
+                }
+            } else {
+                if (buys.length > 0 && sells.length === 0) {
+                    console.log("[Info] Needs to BUY but has NO SELLS (Vault likely empty or all-in on wrong token).");
+                } else if (sells.length > 0 && buys.length === 0) {
+                    console.log("[Info] Needs to SELL but nothing to BUY (Unusual state).");
                 }
             }
 

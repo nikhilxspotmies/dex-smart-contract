@@ -24,6 +24,27 @@ export class VaultManager {
      * efficient: loops until it hits the end of the array (revert).
      */
     async getAllVaults(): Promise<VaultInfo[]> {
+        // 1. Refresh Existing Vaults (Owner/TargetWhale might have changed)
+        console.log(`Refreshing data for ${this.vaults.length} known vaults...`);
+        for (const vault of this.vaults) {
+            try {
+                const vaultContract = new ethers.Contract(vault.address, VAULT_ABI, this.provider);
+                const [owner, targetWhale] = await Promise.all([
+                    (vaultContract as any).owner(),
+                    (vaultContract as any).targetWhale()
+                ]);
+
+                if (vault.owner !== owner || vault.targetWhale !== targetWhale) {
+                    console.log(`[Vault Update] ${vault.address}: Owner ${vault.owner}->${owner}, Whale ${vault.targetWhale}->${targetWhale}`);
+                    vault.owner = owner;
+                    vault.targetWhale = targetWhale;
+                }
+            } catch (e) {
+                console.error(`Failed to refresh vault ${vault.address}:`, e);
+            }
+        }
+
+        // 2. Discover New Vaults
         // We simply try to fetch the next vault index.
         // If it exists, add it and continue.
         // If it reverts (or returns error), we assume we reached the end of the list.
@@ -44,7 +65,6 @@ export class VaultManager {
                 // If we got an address (and it's not zero), process it
                 if (vaultAddr && vaultAddr !== ethers.ZeroAddress) {
                     try {
-                        // Always fetch latest details (Owner/TargetWhale might change)
                         const vault = new ethers.Contract(vaultAddr, VAULT_ABI, this.provider);
                         const [owner, targetWhale] = await Promise.all([
                             (vault as any).owner(),
@@ -52,12 +72,7 @@ export class VaultManager {
                         ]);
 
                         const existingVault = this.vaults.find(v => v.address === vaultAddr);
-                        if (existingVault) {
-                            // Update existing
-                            existingVault.owner = owner;
-                            existingVault.targetWhale = targetWhale;
-                            console.log(`Updated Vault ${vaultAddr}: Following ${targetWhale}`);
-                        } else {
+                        if (!existingVault) {
                             // Add new
                             this.vaults.push({
                                 address: vaultAddr,
@@ -67,7 +82,7 @@ export class VaultManager {
                             console.log(`Discovered Vault #${this.lastCheckedIndex}: ${vaultAddr}`);
                         }
                     } catch (e) {
-                        console.error(`Failed to fetch details for vault ${vaultAddr}`, e);
+                        console.error(`Failed to fetch details for new vault ${vaultAddr}`, e);
                     }
 
                     // Move to next index

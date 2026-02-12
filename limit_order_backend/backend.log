@@ -1,0 +1,14 @@
+
+> limit_order_backend@1.0.0 start
+> node dist/src/index.js
+
+[dotenv@17.2.3] injecting env (5) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+LIMIT_ORDER_ADDRESS: 0xe9bB7CEB9361208b3d4A0523bee6d290B047D98a
+PORT: 3001
+Limit Order Backend running on port 3001
+🌱 Seeding initial price history data...
+Initialized BTC-USDC with 61 data points. Last price: 3447.11
+Initialized ETH-USDC with 61 data points. Last price: 2205.26
+🚀 Matching Engine started...
+ℹ️  Network Chain ID: 56

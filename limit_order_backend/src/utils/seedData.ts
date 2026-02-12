@@ -16,6 +16,7 @@ export const seedData = () => {
         price += change;
         btcHistory.push({
             price: price.toFixed(2),
+            volume: (Math.random() * 1000 + 500).toFixed(2),
             timestamp: now - (i * 60 * 1000)
         });
     }
@@ -34,6 +35,7 @@ export const seedData = () => {
         ethPrice += change;
         ethHistory.push({
             price: ethPrice.toFixed(2),
+            volume: (Math.random() * 500 + 200).toFixed(2),
             timestamp: now - (i * 60 * 1000)
         });
     }

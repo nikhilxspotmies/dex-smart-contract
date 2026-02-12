@@ -1,6 +1,7 @@
 import { prepareEvent, getContractEvents, getContract, watchContractEvents } from "thirdweb";
 import { client, chain } from "../utils/client.js";
 import PerpTrade, { TradeStatus } from "../models/PerpTrade.js";
+import User from "../models/User.js";
 import { config } from "dotenv";
 
 config();
@@ -125,6 +126,32 @@ export const startPerpEventListener = () => {
         },
     });
 
+    // 4. Request Created (From Router)
+    const ROUTER_ADDRESS = process.env.PERP_ROUTER_ADDRESS;
+    if (ROUTER_ADDRESS) {
+        const routerContract = getContract({
+            client,
+            chain,
+            address: ROUTER_ADDRESS,
+        });
+
+        const requestCreatedEvent = prepareEvent({
+            signature: "event RequestCreated(uint256 indexed id, address indexed user, address indexed market, bool isIncrease)"
+        });
+
+        watchContractEvents({
+            contract: routerContract,
+            events: [requestCreatedEvent],
+            onEvents: async (events) => {
+                for (const event of events) {
+                    console.log("RequestCreated Event:", event.args);
+                    // We don't necessarily need a handler if the Keeper is polling, 
+                    // but for observability we can log it.
+                }
+            },
+        });
+    }
+
     return { unwatchIncreased, unwatchDecreased, unwatchLiquidated };
 };
 
@@ -179,6 +206,26 @@ async function handlePositionIncreased(args: any, txHash: string, blockNumber: b
             trade.lastUpdatedBlock = Number(blockNumber);
             const savedTrade = await trade.save();
             console.log(`[DB] Updated position ${positionId}. Saved Size: ${savedTrade.size}, Collateral: ${savedTrade.collateral}`);
+        }
+
+        // Referral Logic: Reward referrer if this is the user's first trade
+        try {
+            const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${user}$`, 'i') } });
+
+            if (currentUser && !currentUser.hasDoneFirstTrade) {
+                if (currentUser.referredBy) {
+                    const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
+                    if (referrer) {
+                        referrer.referralPoints = (referrer.referralPoints || 0) + 100;
+                        await referrer.save();
+                        console.log(`Referral Reward (Futures): ${referrer.walletAddress} received 100 points for referring ${user}`);
+                    }
+                }
+                currentUser.hasDoneFirstTrade = true;
+                await currentUser.save();
+            }
+        } catch (refError) {
+            console.error("Referral Logic Error (Futures Event):", refError);
         }
     } catch (err) {
         console.error("Error handling PositionIncreased:", err);

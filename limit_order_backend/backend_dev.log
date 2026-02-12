@@ -1,0 +1,46 @@
+
+> limit_order_backend@1.0.0 dev
+> nodemon --exec tsx src/index.ts
+
+[33m[nodemon] 3.1.11[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+[dotenv@17.2.3] injecting env (5) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+LIMIT_ORDER_ADDRESS: 0xe9bB7CEB9361208b3d4A0523bee6d290B047D98a
+PORT: 3001
+Limit Order Backend running on port 3001
+🌱 Seeding initial price history data...
+Initialized BTC-USDC with 61 data points. Last price: 3449.26
+Initialized ETH-USDC with 61 data points. Last price: 2205.94
+🚀 Matching Engine started...
+ℹ️  Network Chain ID: 56
+[32m[nodemon] restarting child process[39m
+
+  #  Node.js[392580]: void node::ResetStdio() at ../src/node.cc:751
+  #  Assertion failed: !(err != 0) || (err == -1 && (*__errno_location ()) == 1)
+
+----- Native stack trace -----
+
+ 1: 0xcb3007 node::Assert(node::AssertionInfo const&) [node]
+ 2: 0xc5f924  [node]
+ 3: 0x7d6df0a47a76  [/lib/x86_64-linux-gnu/libc.so.6]
+ 4: 0x7d6df0a47bbe  [/lib/x86_64-linux-gnu/libc.so.6]
+ 5: 0xbbf62f node::DefaultProcessExitHandlerInternal(node::Environment*, node::ExitCode) [node]
+ 6: 0xc1ef0f node::Environment::Exit(node::ExitCode) [node]
+ 7: 0xf4e54f v8::internal::FunctionCallbackArguments::Call(v8::internal::CallHandlerInfo) [node]
+ 8: 0xf4edbd  [node]
+ 9: 0xf4f285 v8::internal::Builtin_HandleApiCall(int, unsigned long*, v8::internal::Isolate*) [node]
+10: 0x1959df6  [node]
+
+  #  Node.js[392580]: void node::ResetStdio() at ../src/node.cc:751
+  #  Assertion failed: !(err != 0) || (err == -1 && (*__errno_location ()) == 1)
+
+----- Native stack trace -----
+
+ 1: 0xcb3007 node::Assert(node::AssertionInfo const&) [node]
+ 2: 0xc5f924  [node]
+ 3: 0xc5ff3d node::TrapWebAssemblyOrContinue(int, siginfo_t*, void*) [node]
+ 4: 0x7d6df0a45330  [/lib/x86_64-linux-gnu/libc.so.6]

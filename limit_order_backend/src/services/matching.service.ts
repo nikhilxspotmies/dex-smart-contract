@@ -8,18 +8,27 @@ import {
     getContract
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { localhost, mainnet } from 'viem/chains';
-import { orders, OrderStatus, lastTradedPrices, priceHistory } from '../controllers/orders.controller.js';
-import type { Order } from '../controllers/orders.controller.js';
+import { localhost, mainnet, bsc } from 'viem/chains';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
 import { TOKENS } from '../utils/tokenConfig.js';
+import { processFirstTradeReferral } from './referral.service.js';
+import { orders as allOrders, OrderStatus, lastTradedPrices, priceHistory } from '../controllers/orders.controller.js';
+import type { Order } from '../controllers/orders.controller.js';
 import dotenv from 'dotenv';
+import fs from 'fs';
+
+const logToFile = (msg: string) => {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync('engine.log', `[${timestamp}] ${msg}\n`);
+};
 
 dotenv.config();
 
 const MATCHER_PRIVATE_KEY = process.env.MATCHER_PRIVATE_KEY as Hex;
 const LIMIT_ORDER_ADDRESS = process.env.LIMIT_ORDER_ADDRESS as Address;
 const CHAIN_ID = Number(process.env.CHAIN_ID) || 31337;
+const RPC_URL = process.env.RPC_URL;
+console.log('📡 RPC_URL:', RPC_URL ? `${RPC_URL.slice(0, 20)}...` : 'Using default');
 const maxUint256 = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
 
 const ERC20ABI = [
@@ -66,17 +75,18 @@ export class MatchingEngine {
         }
 
         this.account = privateKeyToAccount(MATCHER_PRIVATE_KEY);
-        const chain = CHAIN_ID === 31337 ? localhost : mainnet;
+        const chain = CHAIN_ID === 56 ? bsc : (CHAIN_ID === 31337 ? localhost : mainnet);
+        const transport = RPC_URL ? http(RPC_URL) : http();
 
         this.publicClient = createPublicClient({
             chain,
-            transport: http(),
+            transport,
         });
 
         this.walletClient = createWalletClient({
             account: this.account,
             chain,
-            transport: http(),
+            transport,
         });
 
         this.init();
@@ -85,28 +95,32 @@ export class MatchingEngine {
     private async init() {
         try {
             const networkChainId = await this.publicClient.getChainId();
-            console.log(`ℹ️  Network Chain ID: ${networkChainId}`);
-            if (networkChainId !== CHAIN_ID) {
+            console.log(`ℹ️  Network Chain ID: ${networkChainId} (type: ${typeof networkChainId})`);
+            console.log(`ℹ️  Env CHAIN_ID: ${CHAIN_ID} (type: ${typeof CHAIN_ID})`);
+
+            const transport = RPC_URL ? http(RPC_URL) : http();
+
+            if (Number(networkChainId) !== Number(CHAIN_ID)) {
                 console.log(`⚠️  Chain ID mismatch! Env: ${CHAIN_ID}, Network: ${networkChainId}. Adjusting clients...`);
 
-                const chain = { ...localhost, id: networkChainId };
+                const chain = { id: networkChainId };
 
                 this.publicClient = createPublicClient({
                     chain: chain as any,
-                    transport: http(),
+                    transport,
                 });
 
                 this.walletClient = createWalletClient({
                     account: this.account,
                     chain: chain as any,
-                    transport: http(),
+                    transport,
                 });
                 console.log(`✅ Clients adjusted to Chain ID: ${networkChainId}`);
             } else {
                 // Even if it matches, ensure we use the explicit chain object to avoid localhost:1337 default
-                const chain = { ...localhost, id: CHAIN_ID };
-                this.publicClient = createPublicClient({ chain: chain as any, transport: http() });
-                this.walletClient = createWalletClient({ account: this.account, chain: chain as any, transport: http() });
+                const chain = CHAIN_ID === 56 ? bsc : (CHAIN_ID === 31337 ? { ...localhost, id: CHAIN_ID } : mainnet);
+                this.publicClient = createPublicClient({ chain: chain as any, transport });
+                this.walletClient = createWalletClient({ account: this.account, chain: chain as any, transport });
             }
         } catch (error) {
             console.error('❌ Failed to connect to network:', error);
@@ -116,17 +130,22 @@ export class MatchingEngine {
     public start(intervalMs: number = 3000) {
         console.log('🚀 Matching Engine started...');
         setInterval(() => this.scanOrders(), intervalMs);
+        // Run sanity check every 60 seconds
+        setInterval(() => this.sanityCheckOrders(), 60000);
     }
 
     private async scanOrders() {
         try {
-            const openOrders = orders.filter(o => o.status === OrderStatus.OPEN);
+            const openOrders = allOrders.filter((o: Order) => o.status === OrderStatus.OPEN);
+            if (openOrders.length > 0) {
+                logToFile(`Scanning ${openOrders.length} open orders...`);
+            }
             if (openOrders.length === 0) return;
 
             // Group orders by trading pair (e.g. AssetA/AssetB)
             // We use a canonical key by sorting asset addresses
             const pairs = new Map<string, Order[]>();
-            openOrders.forEach(order => {
+            openOrders.forEach((order: Order) => {
                 const assets = [order.makerAsset, order.takerAsset].sort();
                 const key = assets.join('-');
                 if (!pairs.has(key)) pairs.set(key, []);
@@ -193,6 +212,7 @@ export class MatchingEngine {
     }
 
     private async executeMatch(bid: Order, ask: Order, isBidMaker: boolean) {
+        logToFile(`🚀 Match found! Bid: ${bid.orderHash.slice(0, 10)}, Ask: ${ask.orderHash.slice(0, 10)}`);
         console.log(`🚀 Matching found!`);
         console.log(`   Matcher Account: ${this.account.address}`);
         console.log(`   Execution based on ${isBidMaker ? 'Bid (Maker)' : 'Ask (Maker)'} Price`);
@@ -269,7 +289,7 @@ export class MatchingEngine {
                 });
                 console.log(`   Maker Balance: ${balance}`);
                 if (balance < amount) {
-                    console.warn(`   ⚠️  WARNING: Maker ${maker} has insufficient balance (${balance} < ${amount})`);
+                    throw new Error(`Insufficient maker funds: ${maker} has ${balance}, needs ${amount}`);
                 }
             };
 
@@ -374,22 +394,17 @@ export class MatchingEngine {
             console.log(`   Bid Fill: ${bid.filledMakingAmount}/${bid.makingAmount}`);
             console.log(`   Ask Fill: ${ask.filledMakingAmount}/${ask.makingAmount}`);
 
-            // Update lastTradedPrices
+            // ... price update logic (keeping it as is)
             const askToken = TOKENS.find(t => t.address.toLowerCase() === ask.makerAsset.toLowerCase());
             const bidToken = TOKENS.find(t => t.address.toLowerCase() === bid.makerAsset.toLowerCase());
 
+            // ... (keeping existing code)
             const askSymbol = askToken ? askToken.symbol : ask.makerAsset;
             const bidSymbol = bidToken ? bidToken.symbol : bid.makerAsset;
 
             const askDecimals = askToken ? askToken.decimals : 18;
             const bidDecimals = bidToken ? bidToken.decimals : 18;
 
-            // Price of Ask Asset (Base) in terms of Bid Asset (Quote)
-            // Ask Asset is the one being sold by the Ask maker (MakerAsset of Ask)
-            // Bid Asset is the one being sold by the Bid maker (MakerAsset of Bid) which is the "Payment"
-            // Price = Amount(Payment) / Amount(Sold) = matchSizeTKB / matchSizeTKA
-
-            // Normalize amounts with decimals
             const amountBase = Number(matchSizeTKA) / Math.pow(10, askDecimals);
             const amountQuote = Number(matchSizeTKB) / Math.pow(10, bidDecimals);
 
@@ -398,24 +413,102 @@ export class MatchingEngine {
             const key = `${askSymbol}-${bidSymbol}`;
             lastTradedPrices.set(key, price.toString());
 
-            // Update Price History
             if (!priceHistory.has(key)) {
                 priceHistory.set(key, []);
             }
             priceHistory.get(key)?.push({
                 price: price.toString(),
+                volume: amountQuote.toString(), // Store volume in quote currency
                 timestamp: Date.now()
             });
 
             console.log(`   Updated Price for ${key}: ${price}`);
 
+            processFirstTradeReferral(bid.maker).catch(e => console.error('Referral error (bid):', e));
+            processFirstTradeReferral(ask.maker).catch(e => console.error('Referral error (ask):', e));
+
         } catch (error: any) {
             console.error('❌ Match execution failed:');
-            if (error.shortMessage) console.error(`   Error: ${error.shortMessage}`);
-            else console.error(`   Error: ${error.message}`);
+            const errorMsg = error.shortMessage || error.message || "";
+            console.error(`   Error: ${errorMsg}`);
 
-            // Log details for debugging
+            // If execution failed due to funds/allowance, cancel the orders
+            if (errorMsg.toLowerCase().includes('insufficient funds') ||
+                errorMsg.toLowerCase().includes('insufficient maker funds') ||
+                errorMsg.toLowerCase().includes('allowance') ||
+                errorMsg.toLowerCase().includes('transfer amount exceeds balance')) {
+
+                console.log(`   ⚠️  Cancelling invalid orders due to execution failure...`);
+                // If it's a MAKER funds error, we can identify which one
+                if (errorMsg.toLowerCase().includes(bid.maker.toLowerCase())) {
+                    await this.verifyAndCancelOrder(bid);
+                } else if (errorMsg.toLowerCase().includes(ask.maker.toLowerCase())) {
+                    await this.verifyAndCancelOrder(ask);
+                } else {
+                    // Fallback: verify both
+                    await this.verifyAndCancelOrder(bid);
+                    await this.verifyAndCancelOrder(ask);
+                }
+            }
+
             if (error.details) console.error(`   Details: ${error.details}`);
+        }
+    }
+
+    private async sanityCheckOrders() {
+        try {
+            const openOrders = allOrders.filter(o => o.status === OrderStatus.OPEN);
+            console.log(`🔍 [${new Date().toLocaleTimeString()}] Sanity check: validating ${openOrders.length} orders...`);
+            if (openOrders.length === 0) return;
+
+            logToFile(`Running sanity check on ${openOrders.length} open orders...`);
+
+            for (const order of openOrders) {
+                await this.verifyAndCancelOrder(order);
+            }
+        } catch (error) {
+            console.error('❌ Error in sanityCheckOrders:', error);
+        }
+    }
+
+    private async verifyAndCancelOrder(order: Order) {
+        if (order.status !== OrderStatus.OPEN) return;
+
+        try {
+            const remainingMaking = BigInt(order.makingAmount) - BigInt(order.filledMakingAmount);
+            if (remainingMaking <= 0n) return;
+
+            // Check Balance
+            const balance = await this.publicClient.readContract({
+                address: order.makerAsset as Address,
+                abi: ERC20ABI,
+                functionName: 'balanceOf',
+                args: [order.maker as Address],
+            });
+
+            if (balance < remainingMaking) {
+                console.log(`   🚫 Cancelling order ${order.orderHash.slice(0, 10)}: Insufficient Balance (${balance} < ${remainingMaking})`);
+                order.status = OrderStatus.CANCELLED;
+                order.updatedAt = new Date();
+                return;
+            }
+
+            // Check Allowance
+            const allowance = await this.publicClient.readContract({
+                address: order.makerAsset as Address,
+                abi: ERC20ABI,
+                functionName: 'allowance',
+                args: [order.maker as Address, LIMIT_ORDER_ADDRESS],
+            });
+
+            if (allowance < remainingMaking) {
+                console.log(`   🚫 Cancelling order ${order.orderHash.slice(0, 10)}: Insufficient Allowance (${allowance} < ${remainingMaking})`);
+                order.status = OrderStatus.CANCELLED;
+                order.updatedAt = new Date();
+                return;
+            }
+        } catch (error) {
+            console.error(`   ⚠️ Failed to verify order ${order.orderHash.slice(0, 10)}:`, error);
         }
     }
 

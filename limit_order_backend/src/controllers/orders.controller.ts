@@ -34,8 +34,8 @@ export const orders: Order[] = [];
 // In-place variable for last traded prices (key: "AssetA-AssetB", value: price)
 export const lastTradedPrices = new Map<string, string>();
 
-// In-place variable for price history (key: "AssetA-AssetB", value: Array<{ price: string, timestamp: number }>)
-export const priceHistory = new Map<string, Array<{ price: string, timestamp: number }>>();
+// In-place variable for price history (key: "AssetA-AssetB", value: Array<{ price: string, volume: string, timestamp: number }>)
+export const priceHistory = new Map<string, Array<{ price: string, volume: string, timestamp: number }>>();
 
 // ... existing code ...
 
@@ -63,6 +63,7 @@ export const getPriceHistory = async (req: Request, res: Response) => {
             if (inverseHistory && inverseHistory.length > 0) {
                 history = inverseHistory.map(item => ({
                     price: (1 / parseFloat(item.price)).toString(),
+                    volume: item.volume,
                     timestamp: item.timestamp
                 }));
             }
@@ -204,6 +205,7 @@ export const getOrderbook = async (req: Request, res: Response) => {
 export const getLastPrice = async (req: Request, res: Response) => {
     try {
         const { symbol, base, quote } = req.query;
+        console.log(`📡 GET /last-price params:`, req.query);
 
         let key = symbol as string;
         let inverseKey = "";
@@ -229,12 +231,71 @@ export const getLastPrice = async (req: Request, res: Response) => {
 
         if (!price) {
             // Return 200 with 0 or null to avoid console 404s as per user preference "initially it is zero"
-            return res.status(200).json({ symbol: key, price: "0" });
+            return res.status(200).json({
+                symbol: key,
+                price: "0",
+                high24h: "0",
+                low24h: "0",
+                change24h: "0",
+                volume24h: "0"
+            });
         }
 
-        return res.status(200).json({ symbol: key, price });
+        // Calculate 24h stats
+        const now = Date.now();
+        const oneDayAgo = now - 24 * 60 * 60 * 1000;
+        const history = priceHistory.get(key) || [];
+        const recentHistory = history.filter(h => h.timestamp > oneDayAgo);
+
+        let high24h = parseFloat(price);
+        let low24h = parseFloat(price);
+        let volume24h = 0;
+        let change24h = 0;
+
+        if (recentHistory.length > 0) {
+            const prices = recentHistory.map(h => parseFloat(h.price));
+            high24h = Math.max(...prices);
+            low24h = Math.min(...prices);
+            volume24h = recentHistory.reduce((acc, h) => acc + parseFloat(h.volume), 0);
+
+            const firstPrice = parseFloat(recentHistory[0].price);
+            const currentPrice = parseFloat(price);
+            change24h = ((currentPrice - firstPrice) / firstPrice) * 100;
+        }
+
+        return res.status(200).json({
+            symbol: key,
+            price,
+            high24h: high24h.toString(),
+            low24h: low24h.toString(),
+            change24h: change24h.toFixed(2),
+            volume24h: volume24h.toString()
+        });
     } catch (error) {
         console.error('Get last price error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+export const getDebugOrders = async (req: Request, res: Response) => {
+    return res.status(200).json(orders);
+};
+
+export const getUserOrders = async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+
+        if (!address) {
+            return res.status(400).json({ error: 'Address is required' });
+        }
+
+        const userOrders = orders
+            .filter(o => o.maker.toLowerCase() === address.toLowerCase())
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+        return res.status(200).json(userOrders);
+    } catch (error) {
+        console.error('Get user orders error:', error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };

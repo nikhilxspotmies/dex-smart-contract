@@ -26,7 +26,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/swap', swapRoutes);
 app.use('/api/perp', perpTradeRoutes);
 
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 

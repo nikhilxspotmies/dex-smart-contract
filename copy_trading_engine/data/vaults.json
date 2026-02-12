@@ -1,0 +1,10 @@
+{
+  "vaults": [
+    {
+      "address": "0x5d27e74382DD41D75B0b4563A8E2D8CD1E0E6e00",
+      "owner": "0x440AA0257b029E4A467B9Cf996cf523011Eb5ffA",
+      "targetWhale": "0xea823440cdFd8A97FCF90a9c14D04096A1A721c0"
+    }
+  ],
+  "lastCheckedBlock": 80353575
+}

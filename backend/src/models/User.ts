@@ -14,6 +14,8 @@ export interface IUser extends Document {
     referredBy?: string;
     referralPoints?: number;
     hasDoneFirstTrade?: boolean;
+    isDeleted?: boolean;
+    deletedAt?: Date;
 }
 
 const UserSchema: Schema = new Schema({
@@ -29,7 +31,9 @@ const UserSchema: Schema = new Schema({
     referralCode: { type: String, unique: true, sparse: true },
     referredBy: { type: String, required: false }, // Stores the walletAddress of the referrer
     referralPoints: { type: Number, default: 0 },
-    hasDoneFirstTrade: { type: Boolean, default: false }
+    hasDoneFirstTrade: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, required: false }
 
 });
 

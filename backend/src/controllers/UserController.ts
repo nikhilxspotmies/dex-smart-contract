@@ -2,6 +2,9 @@ import type { Request, Response } from 'express';
 import User from '../models/User.js';
 import generateToken from '../utils/generateToken.js';
 import bcrypt from 'bcrypt';
+import PerpTrade from '../models/PerpTrade.js';
+import Trade from '../models/Trade.js';
+import Listing from '../models/Listing.js';
 
 export const register = async (req: Request, res: Response) => {
     console.log("Registering user...");
@@ -15,6 +18,10 @@ export const register = async (req: Request, res: Response) => {
 
         const existingUser = await User.findOne({ $or: [{ walletAddress }, { email }] });
         if (existingUser) {
+            if (existingUser.isDeleted) {
+                res.status(400).json({ message: 'This account was previously deleted. Please contact support.' });
+                return;
+            }
             res.status(400).json({ message: 'User with this wallet address or email already exists' });
             return;
         }
@@ -89,6 +96,11 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
+            if (user.isDeleted) {
+                res.status(403).json({ message: 'This account has been deleted.' });
+                return;
+            }
+
             res.status(200).json({
                 message: 'Login successful',
                 user: {
@@ -110,6 +122,11 @@ export const login = async (req: Request, res: Response) => {
             const user = await User.findOne({ email });
             if (!user) {
                 res.status(400).json({ message: 'Invalid email or password' });
+                return;
+            }
+
+            if (user.isDeleted) {
+                res.status(403).json({ message: 'This account has been deleted.' });
                 return;
             }
 
@@ -244,6 +261,98 @@ export const processFirstTrade = async (req: Request, res: Response) => {
         res.status(200).json({ message: 'First trade processed, referral rewarded', rewarded: true });
     } catch (error) {
         console.error('processFirstTrade error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+/**
+ * Delete (soft-delete) a user account.
+ * Protected route — requires JWT auth.
+ *
+ * Pre-flight checks:
+ * - Blocks deletion if user has OPEN perpetual positions
+ * - Blocks deletion if user has active P2P trades (Proposed/Locked)
+ * - Blocks deletion if user has active P2P listings
+ *
+ * On success:
+ * - Sets isDeleted = true and deletedAt = now on the User document
+ * - All trade history, swap history, etc. remains intact
+ * - Referral chain is preserved (referredBy pointers stay)
+ * - Referral code stops working for new signups (login guard rejects deleted users)
+ */
+export const deleteAccount = async (req: any, res: Response) => {
+    try {
+        const user = req.user;
+
+        if (!user) {
+            res.status(404).json({ message: 'User not found' });
+            return;
+        }
+
+        if (user.isDeleted) {
+            res.status(400).json({ message: 'Account is already deleted' });
+            return;
+        }
+
+        const walletAddress = user.walletAddress;
+
+        // --- Pre-flight checks ---
+
+        // 1. Check for OPEN perpetual positions
+        const openPerpPositions = await PerpTrade.countDocuments({
+            walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') },
+            status: 'OPEN'
+        });
+
+        if (openPerpPositions > 0) {
+            res.status(400).json({
+                message: `Cannot delete account: you have ${openPerpPositions} open perpetual position(s). Please close them first.`
+            });
+            return;
+        }
+
+        // 2. Check for active P2P trades (Proposed or Locked)
+        const activeP2PTrades = await Trade.countDocuments({
+            $or: [
+                { buyer: { $regex: new RegExp(`^${walletAddress}$`, 'i') } },
+                { seller: { $regex: new RegExp(`^${walletAddress}$`, 'i') } }
+            ],
+            status: { $in: ['Proposed', 'Locked'] }
+        });
+
+        if (activeP2PTrades > 0) {
+            res.status(400).json({
+                message: `Cannot delete account: you have ${activeP2PTrades} active P2P trade(s). Please complete or cancel them first.`
+            });
+            return;
+        }
+
+        // 3. Check for active listings
+        const activeListings = await Listing.countDocuments({
+            seller: { $regex: new RegExp(`^${walletAddress}$`, 'i') },
+            active: true
+        });
+
+        if (activeListings > 0) {
+            res.status(400).json({
+                message: `Cannot delete account: you have ${activeListings} active listing(s). Please delist them first.`
+            });
+            return;
+        }
+
+        // --- All checks passed, soft-delete the account ---
+        user.isDeleted = true;
+        user.deletedAt = new Date();
+        await user.save();
+
+        console.log(`Account soft-deleted: ${walletAddress} at ${user.deletedAt.toISOString()}`);
+
+        res.status(200).json({
+            message: 'Account deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete account error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

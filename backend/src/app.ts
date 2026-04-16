@@ -5,6 +5,7 @@ import listingRoutes from './routes/listingRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import swapRoutes from './routes/swapRoutes.js';
 import perpTradeRoutes from './routes/perpTradeRoutes.js';
+import whaleRoutes from './routes/whaleRoutes.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/listing', listingRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/swap', swapRoutes);
 app.use('/api/perp', perpTradeRoutes);
+app.use('/api/whales', whaleRoutes);
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });

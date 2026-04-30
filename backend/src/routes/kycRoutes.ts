@@ -1,5 +1,5 @@
 import express from 'express';
-import { generateToken, handleWebhook } from '../controllers/kycController.js';
+import { generateToken, handleWebhook, syncStatus } from '../controllers/kycController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -10,6 +10,13 @@ const router = express.Router();
  * @access  Private
  */
 router.get('/generate-token', protect, generateToken);
+
+/**
+ * @route   GET /api/kyc/sync-status
+ * @desc    Manually sync KYC status from Sumsub API
+ * @access  Private
+ */
+router.get('/sync-status', protect, syncStatus);
 
 /**
  * @route   POST /api/kyc/webhook

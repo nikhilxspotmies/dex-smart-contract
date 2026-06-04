@@ -89,13 +89,16 @@ async function syncStatusInternal(walletAddress: string) {
             if (reviewStatus === 'completed') {
                 const isApproved = reviewResult?.reviewAnswer === 'GREEN';
                 kycStatus = isApproved ? 'VERIFIED' : 'REJECTED';
-                
+
                 if (!isApproved) {
                     kycRejectionReasons = reviewResult?.rejectLabels || [];
                     kycComment = reviewResult?.clientComment || reviewResult?.moderationComment || '';
                     kycIsFinal = reviewResult?.reviewRejectType === 'FINAL';
                 }
-            } else if (['pending', 'init', 'prechecked', 'queued', 'onHold'].includes(reviewStatus)) {
+            } else if (reviewStatus === 'init') {
+                // Applicant started but hasn't submitted all required documents yet
+                kycStatus = 'INCOMPLETE';
+            } else if (['pending', 'prechecked', 'queued', 'onHold'].includes(reviewStatus)) {
                 kycStatus = 'PENDING';
             }
 
@@ -195,15 +198,16 @@ export const handleWebhook = async (req: AuthRequest, res: Response) => {
       );
 
       console.log(`User ${externalUserId} KYC updated to: ${kycStatus}`);
-    } else if (['applicantPending', 'applicantCreated', 'applicantReset', 'applicantOnHold'].includes(type)) {
+    } else if (type === 'applicantCreated') {
       await User.updateOne(
         { walletAddress: { $regex: new RegExp(`^${externalUserId}$`, 'i') } },
-        { 
-            kycStatus: 'PENDING',
-            kycRejectionReasons: [],
-            kycComment: '',
-            kycIsFinal: false
-        }
+        { kycStatus: 'INCOMPLETE', kycRejectionReasons: [], kycComment: '', kycIsFinal: false }
+      );
+      console.log(`User ${externalUserId} KYC updated to: INCOMPLETE (via ${type})`);
+    } else if (['applicantPending', 'applicantReset', 'applicantOnHold'].includes(type)) {
+      await User.updateOne(
+        { walletAddress: { $regex: new RegExp(`^${externalUserId}$`, 'i') } },
+        { kycStatus: 'PENDING', kycRejectionReasons: [], kycComment: '', kycIsFinal: false }
       );
       console.log(`User ${externalUserId} KYC updated to: PENDING (via ${type})`);
     }

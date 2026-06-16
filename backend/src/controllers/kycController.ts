@@ -60,10 +60,30 @@ export const generateToken = async (req: AuthRequest, res: Response) => {
         syncStatusInternal(externalUserId).catch(console.error);
     }
   } catch (error: any) {
-    console.error('Sumsub token generation error:', error);
-    res.status(500).json({
-      message: 'Internal server error',
-      error: error.response?.data || error.message
+    const sumsubError = error.response?.data;
+    const statusCode = error.response?.status;
+    console.error('Sumsub token generation error:', JSON.stringify(sumsubError || error.message));
+
+    // Country/region restriction — Sumsub returns 400 with specific error codes
+    if (
+      statusCode === 400 &&
+      (sumsubError?.description?.toLowerCase().includes('country') ||
+       sumsubError?.code === 'COUNTRY_RESTRICTED' ||
+       sumsubError?.description?.toLowerCase().includes('not supported') ||
+       sumsubError?.description?.toLowerCase().includes('sanctioned'))
+    ) {
+      res.status(403).json({
+        message: 'KYC verification is not available in your region.',
+        code: 'COUNTRY_RESTRICTED'
+      });
+      return;
+    }
+
+    // Propagate the real Sumsub error so the frontend can show something useful
+    res.status(statusCode || 500).json({
+      message: sumsubError?.description || sumsubError?.message || 'Failed to initialize verification. Please try again.',
+      code: sumsubError?.code || 'SUMSUB_ERROR',
+      error: sumsubError
     });
   }
 };

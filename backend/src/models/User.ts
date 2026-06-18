@@ -16,6 +16,11 @@ export interface IUser extends Document {
     hasDoneFirstTrade?: boolean;
     isDeleted?: boolean;
     deletedAt?: Date;
+    kycStatus?: 'NONE' | 'INCOMPLETE' | 'PENDING' | 'VERIFIED' | 'REJECTED';
+    sumsubId?: string;
+    kycRejectionReasons?: string[];
+    kycComment?: string;
+    kycIsFinal?: boolean;
 }
 
 const UserSchema: Schema = new Schema({
@@ -33,7 +38,12 @@ const UserSchema: Schema = new Schema({
     referralPoints: { type: Number, default: 0 },
     hasDoneFirstTrade: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false },
-    deletedAt: { type: Date, required: false }
+    deletedAt: { type: Date, required: false },
+    kycStatus: { type: String, enum: ['NONE', 'INCOMPLETE', 'PENDING', 'VERIFIED', 'REJECTED'], default: 'NONE' },
+    sumsubId: { type: String, required: false },
+    kycRejectionReasons: { type: [String], default: [] },
+    kycComment: { type: String, required: false },
+    kycIsFinal: { type: Boolean, default: false }
 
 });
 

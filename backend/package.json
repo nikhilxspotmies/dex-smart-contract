@@ -25,6 +25,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
     "socket.io": "^4.8.1",
+    "sumsub-node-sdk": "^2.0.0",
     "thirdweb": "^5.116.1",
     "typescript": "^5.9.3"
   },

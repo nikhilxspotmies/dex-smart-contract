@@ -189,7 +189,11 @@ export const getUserProfile = async (req: any, res: Response) => {
             referralCode: user.referralCode,
             referralPoints: user.referralPoints || 0,
             referredBy: user.referredBy || null,
-            hasDoneFirstTrade: user.hasDoneFirstTrade || false
+            hasDoneFirstTrade: user.hasDoneFirstTrade || false,
+            kycStatus: user.kycStatus || 'NONE',
+            kycRejectionReasons: user.kycRejectionReasons || [],
+            kycComment: user.kycComment || '',
+            kycIsFinal: user.kycIsFinal || false
         });
     } else {
         res.status(404).json({ message: 'User not found' });

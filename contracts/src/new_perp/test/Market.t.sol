@@ -122,7 +122,7 @@ contract MarketTest is Test {
         vault.deposit(500_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 400 * 1e6;
+        uint256 collateral = 600 * 1e6; // C3: must respect 10x initial-margin cap
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -986,7 +986,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 200 * 1e6; // Small collateral
+        uint256 collateral = 600 * 1e6; // C3: 10x cap (was 200, still liquidatable on crash)
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -1028,7 +1028,7 @@ contract MarketTest is Test {
             address(market),
             0,
             5_000 * WAD, // Large, risky
-            200 * 1e6,
+            600 * 1e6, // C3: 10x cap (still liquidatable on crash)
             true,
             2_100 * 1e18,
             executionFee
@@ -1075,7 +1075,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 100 * 1e6; // Small collateral
+        uint256 collateral = 600 * 1e6; // C3: 10x cap (was 100, full wipeout still occurs on 75% crash)
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -1247,7 +1247,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 200 * 1e6;
+        uint256 collateral = 600 * 1e6; // C3: 10x cap
         uint256 executionFee = 1 * 1e6;
 
         // Open profitable long position

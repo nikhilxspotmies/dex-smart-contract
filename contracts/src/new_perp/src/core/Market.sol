@@ -45,6 +45,13 @@ contract Market is ReentrancyGuard, Ownable {
     uint256 public avgEntryLongPrice;
     uint256 public avgEntryShortPrice;
 
+    // H5: sum(size*entry) per side; avgEntry = sum/oi, kept accurate on close too.
+    uint256 public sumEntryLong;
+    uint256 public sumEntryShort;
+
+    // C3: max leverage at open (must stay <20x so initial margin > 5% maintenance).
+    uint256 public maxLeverage = 10;
+
     int256 public cumulativeFundingLong;
     int256 public cumulativeFundingShort;
     uint256 public lastFundingTime;
@@ -158,6 +165,15 @@ contract Market is ReentrancyGuard, Ownable {
             require(p.size > 0, "pos not found");
             require(p.isLong == isLong, "side mismatch");
 
+            // H5: settle accrued funding before resetting snapshot (else a dust-add wipes it).
+            int256 accruedFunding = _fundingPnl(p, p.size, isLong);
+            if (accruedFunding >= 0) {
+                p.collateral += _usdToUsdc(uint256(accruedFunding));
+            } else {
+                uint256 owedUsdc = _usdToUsdc(uint256(-accruedFunding));
+                p.collateral = owedUsdc >= p.collateral ? 0 : p.collateral - owedUsdc;
+            }
+
             // Update weighted average entry price
             uint256 newSize = p.size + sizeDelta;
             p.entryPrice = (p.entryPrice * p.size + price * sizeDelta) / newSize;
@@ -172,32 +188,23 @@ contract Market is ReentrancyGuard, Ownable {
 
         p.collateral += collateralNet;
 
-        // OI caps and average entry tracking
+        // OI caps and accurate weighted-entry tracking (H5)
         if (isLong) {
-            uint256 prevOi = oiLong;
             uint256 newOi = oiLong + sizeDelta;
             require(newOi <= maxOpenInterestLong, "oi long cap");
             oiLong = newOi;
-            if (newOi > 0) {
-                if (prevOi == 0) {
-                    avgEntryLongPrice = price;
-                } else {
-                    avgEntryLongPrice = (avgEntryLongPrice * prevOi + price * sizeDelta) / newOi;
-                }
-            }
+            sumEntryLong += sizeDelta * price;
+            avgEntryLongPrice = oiLong > 0 ? sumEntryLong / oiLong : 0;
         } else {
-            uint256 prevOi = oiShort;
             uint256 newOi = oiShort + sizeDelta;
             require(newOi <= maxOpenInterestShort, "oi short cap");
             oiShort = newOi;
-            if (newOi > 0) {
-                if (prevOi == 0) {
-                    avgEntryShortPrice = price;
-                } else {
-                    avgEntryShortPrice = (avgEntryShortPrice * prevOi + price * sizeDelta) / newOi;
-                }
-            }
+            sumEntryShort += sizeDelta * price;
+            avgEntryShortPrice = oiShort > 0 ? sumEntryShort / oiShort : 0;
         }
+
+        // C3: enforce max leverage on the resulting position.
+        require(_usdcToUsd(p.collateral) * maxLeverage >= p.size, "exceeds max leverage");
 
         emit PositionIncreased(user, positionId, isLong, p.size, p.collateral, price);
     }
@@ -215,6 +222,9 @@ contract Market is ReentrancyGuard, Ownable {
         Position storage p = positions[positionId];
         require(p.size >= sizeDelta && p.size > 0, "size too big");
         require(p.isLong == isLong, "side mismatch");
+
+        // H5: cache entry before the full-close branch can zero it.
+        uint256 entryPriceCache = p.entryPrice;
 
         // Compute PnL
         int256 pnl = _calculatePnl(p, sizeDelta, price);
@@ -275,11 +285,15 @@ contract Market is ReentrancyGuard, Ownable {
 
         emit PositionDecreased(user, positionId, isLong, sizeDelta, p.collateral, price, pnl);
 
-        // reduce OI
+        // reduce OI and keep weighted-entry sums accurate (H5)
         if (isLong) {
             oiLong -= sizeDelta;
+            sumEntryLong -= sizeDelta * entryPriceCache;
+            avgEntryLongPrice = oiLong > 0 ? sumEntryLong / oiLong : 0;
         } else {
             oiShort -= sizeDelta;
+            sumEntryShort -= sizeDelta * entryPriceCache;
+            avgEntryShortPrice = oiShort > 0 ? sumEntryShort / oiShort : 0;
         }
     }
 
@@ -313,11 +327,15 @@ contract Market is ReentrancyGuard, Ownable {
 
         emit Liquidated(user, positionId, p.isLong, p.size, p.collateral, price, pnl);
 
-        // adjust OI
+        // adjust OI and weighted-entry sums (H5)
         if (p.isLong) {
             oiLong -= p.size;
+            sumEntryLong -= p.size * p.entryPrice;
+            avgEntryLongPrice = oiLong > 0 ? sumEntryLong / oiLong : 0;
         } else {
             oiShort -= p.size;
+            sumEntryShort -= p.size * p.entryPrice;
+            avgEntryShortPrice = oiShort > 0 ? sumEntryShort / oiShort : 0;
         }
 
         // Remove position ID from user's list
@@ -357,6 +375,10 @@ contract Market is ReentrancyGuard, Ownable {
         return usdWad / quoteScale;
     }
 
+    function _usdcToUsd(uint256 usdcAmount) internal view returns (uint256) {
+        return usdcAmount * quoteScale;
+    }
+
     // Admin setters
     function setMaxOI(uint256 longCap, uint256 shortCap) external onlyOwner {
         maxOpenInterestLong = longCap;
@@ -365,6 +387,12 @@ contract Market is ReentrancyGuard, Ownable {
 
     function setPositionManager(address pm) external onlyOwner {
         positionManager = pm;
+    }
+
+    // C3: cap leverage; must stay <20x (initial margin > maintenance).
+    function setMaxLeverage(uint256 _maxLeverage) external onlyOwner {
+        require(_maxLeverage >= 1 && _maxLeverage * MAINT_MARGIN_BPS < BPS_DIV, "bad leverage");
+        maxLeverage = _maxLeverage;
     }
 
     // ---- View functions for multiple positions ----

@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 import User from '../models/User.js';
+import { env } from '../config/env.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -21,7 +22,7 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
                 return;
             }
 
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret_key_change_me') as any;
+            const decoded = jwt.verify(token, env.JWT_SECRET) as any;
 
             req.user = await User.findById(decoded.id).select('-password');
 

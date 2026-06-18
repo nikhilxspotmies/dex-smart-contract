@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import User from '../models/User.js';
 import generateToken from '../utils/generateToken.js';
 import bcrypt from 'bcrypt';
-import PerpTrade from '../models/PerpTrade.js';
+import PerpTrade, { TradeStatus } from '../models/PerpTrade.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
 
@@ -305,7 +305,7 @@ export const deleteAccount = async (req: any, res: Response) => {
         // 1. Check for OPEN perpetual positions
         const openPerpPositions = await PerpTrade.countDocuments({
             walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') },
-            status: 'OPEN'
+            status: TradeStatus.OPEN
         });
 
         if (openPerpPositions > 0) {

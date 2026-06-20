@@ -1,10 +1,80 @@
 import type { Request, Response } from 'express';
+import { SiweMessage, generateNonce } from 'siwe';
 import User from '../models/User.js';
+import Nonce from '../models/Nonce.js';
 import generateToken from '../utils/generateToken.js';
+import { setAuthCookie, clearAuthCookie } from '../utils/authCookie.js';
+import { env } from '../config/env.js';
 import bcrypt from 'bcrypt';
 import PerpTrade, { TradeStatus } from '../models/PerpTrade.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
+
+// F-07: issue a one-time SIWE nonce for a wallet address
+export const getNonce = async (req: Request, res: Response) => {
+    try {
+        const { walletAddress } = req.body;
+        if (!walletAddress) {
+            res.status(400).json({ message: 'walletAddress is required' });
+            return;
+        }
+
+        const address = String(walletAddress).toLowerCase();
+        const nonce = generateNonce();
+        const expiresAt = new Date(Date.now() + env.NONCE_TTL_MS);
+
+        await Nonce.findOneAndUpdate(
+            { address },
+            { address, nonce, expiresAt },
+            { upsert: true, new: true }
+        );
+
+        res.status(200).json({ nonce });
+    } catch (error) {
+        console.error('getNonce error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+// F-07: verify SIWE signature + nonce + domain + recovered address; consumes nonce on success
+const verifyWalletOwnership = async (
+    walletAddress: string,
+    message?: string,
+    signature?: string
+): Promise<boolean> => {
+    if (!walletAddress || !message || !signature) return false;
+
+    const address = String(walletAddress).toLowerCase();
+    const stored = await Nonce.findOne({ address });
+    if (!stored || stored.expiresAt.getTime() < Date.now()) return false;
+
+    let siwe: SiweMessage;
+    try {
+        siwe = new SiweMessage(message);
+    } catch {
+        return false;
+    }
+
+    // anti-phishing: domain must be one of ours
+    if (!env.ALLOWED_SIWE_DOMAINS.includes(siwe.domain)) return false;
+
+    let result;
+    try {
+        result = await siwe.verify(
+            { signature, nonce: stored.nonce, domain: siwe.domain },
+            { suppressExceptions: true }
+        );
+    } catch {
+        return false;
+    }
+
+    if (!result.success) return false;
+    if (result.data.address.toLowerCase() !== address) return false;
+
+    // one-time use: consume nonce (replay protection)
+    await Nonce.deleteOne({ _id: stored._id });
+    return true;
+};
 
 export const register = async (req: Request, res: Response) => {
     console.log("Registering user...");
@@ -13,6 +83,14 @@ export const register = async (req: Request, res: Response) => {
 
         if (!email || !walletAddress) {
             res.status(400).json({ message: 'Email and Wallet Address are required' });
+            return;
+        }
+
+        // F-07: prove wallet ownership before creating the account
+        const { message, signature } = req.body;
+        const ownsWallet = await verifyWalletOwnership(walletAddress, message, signature);
+        if (!ownsWallet) {
+            res.status(401).json({ message: 'Wallet ownership verification failed' });
             return;
         }
 
@@ -63,6 +141,10 @@ export const register = async (req: Request, res: Response) => {
 
         await newUser.save();
 
+        // F-06: JWT set as HttpOnly cookie (also in body for header clients)
+        const token = generateToken(newUser._id.toString());
+        setAuthCookie(res, token);
+
         res.status(201).json({
             message: 'User registered successfully',
             user: {
@@ -73,8 +155,7 @@ export const register = async (req: Request, res: Response) => {
                 lastName: newUser.lastName,
                 referralCode: newUser.referralCode,
                 referralPoints: newUser.referralPoints || 0
-            },
-            token: generateToken(newUser._id.toString())
+            }
         });
     } catch (error) {
         console.error('Registration error:', error);
@@ -90,6 +171,14 @@ export const login = async (req: Request, res: Response) => {
 
         // 1. Wallet Login Flow (Primary)
         if (walletAddress) {
+            // F-07: require a SIWE signature proving wallet control
+            const { message, signature } = req.body;
+            const ownsWallet = await verifyWalletOwnership(walletAddress, message, signature);
+            if (!ownsWallet) {
+                res.status(401).json({ message: 'Wallet ownership verification failed' });
+                return;
+            }
+
             const user = await User.findOne({ walletAddress });
             if (!user) {
                 res.status(404).json({ message: 'User not found. Please sign up first.' });
@@ -101,6 +190,9 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
+            const token = generateToken(user._id.toString());
+            setAuthCookie(res, token);
+
             res.status(200).json({
                 message: 'Login successful',
                 user: {
@@ -111,8 +203,7 @@ export const login = async (req: Request, res: Response) => {
                     lastName: user.lastName,
                     referralCode: user.referralCode,
                     referralPoints: user.referralPoints || 0
-                },
-                token: generateToken(user._id.toString())
+                }
             });
             return;
         }
@@ -141,6 +232,9 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
+            const token = generateToken(user._id.toString());
+            setAuthCookie(res, token);
+
             res.status(200).json({
                 message: 'Login successful',
                 user: {
@@ -151,8 +245,7 @@ export const login = async (req: Request, res: Response) => {
                     lastName: user.lastName,
                     referralCode: user.referralCode,
                     referralPoints: user.referralPoints || 0
-                },
-                token: generateToken(user._id.toString())
+                }
             });
             return;
         }
@@ -210,17 +303,25 @@ export const updateUserProfile = async (req: any, res: Response) => {
 
         const updatedUser = await user.save();
 
+        const token = generateToken(updatedUser._id.toString());
+        setAuthCookie(res, token);
+
         res.json({
             UserName: updatedUser.UserName,
             email: updatedUser.email,
             walletAddress: updatedUser.walletAddress,
             firstName: updatedUser.firstName,
-            lastName: updatedUser.lastName,
-            token: generateToken(updatedUser._id.toString())
+            lastName: updatedUser.lastName
         });
     } else {
         res.status(404).json({ message: 'User not found' });
     }
+};
+
+// F-06: clear the session cookie
+export const logout = async (_req: Request, res: Response) => {
+    clearAuthCookie(res);
+    res.status(200).json({ message: 'Logged out' });
 };
 
 /**
@@ -350,6 +451,9 @@ export const deleteAccount = async (req: any, res: Response) => {
         await user.save();
 
         console.log(`Account soft-deleted: ${walletAddress} at ${user.deletedAt.toISOString()}`);
+
+        // F-06: clear the session cookie
+        clearAuthCookie(res);
 
         res.status(200).json({
             message: 'Account deleted successfully'

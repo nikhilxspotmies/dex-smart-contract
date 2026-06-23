@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { sdk } from 'sumsub-node-sdk';
 import User from '../models/User.js';
 import crypto from 'crypto';
+import { env } from '../config/env.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 
 interface AuthRequest extends Request {
   user?: any;
@@ -92,9 +94,15 @@ export const generateToken = async (req: AuthRequest, res: Response) => {
  * Internal helper to sync KYC status from Sumsub API
  */
 async function syncStatusInternal(walletAddress: string) {
+    // H7: normalize address before use in DB query
+    const addr = normalizeAddress(walletAddress);
+    if (!addr) {
+        console.error(`syncStatusInternal: invalid address: ${walletAddress}`);
+        return 'NONE';
+    }
     try {
-        console.log(`Syncing KYC status for: ${walletAddress}`);
-        const response = await sumsub.getApplicantByExternalUserId(walletAddress);
+        console.log(`Syncing KYC status for: ${addr}`);
+        const response = await sumsub.getApplicantByExternalUserId(addr);
         const applicant = response.data;
 
         if (applicant && applicant.review) {
@@ -123,23 +131,23 @@ async function syncStatusInternal(walletAddress: string) {
             }
 
             await User.updateOne(
-                { walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } },
-                { 
+                { walletAddress: { $regex: `^${addr}$`, $options: 'i' } },
+                {
                     kycStatus,
                     kycRejectionReasons,
                     kycComment,
                     kycIsFinal,
-                    sumsubId: applicant.id // Update internal ID if found
+                    sumsubId: applicant.id
                 }
             );
-            console.log(`Synced status for ${walletAddress}: ${kycStatus}`);
+            console.log(`Synced status for ${addr}: ${kycStatus}`);
             return kycStatus;
         }
     } catch (error: any) {
         if (error.response?.status === 404) {
-            console.log(`No Sumsub applicant found for ${walletAddress}`);
+            console.log(`No Sumsub applicant found for ${addr}`);
         } else {
-            console.error(`Error syncing status for ${walletAddress}:`, error.message);
+            console.error(`Error syncing status for ${addr}:`, error.message);
         }
     }
     return 'NONE';
@@ -176,60 +184,73 @@ export const syncStatus = async (req: AuthRequest, res: Response) => {
 export const handleWebhook = async (req: AuthRequest, res: Response) => {
   try {
     const signature = req.headers['x-payload-digest'] as string;
-    const webhookSecret = process.env.SUMSUB_WEBHOOK_SECRET;
+    const digestAlg = (req.headers['x-payload-digest-alg'] as string || 'sha256').toLowerCase();
 
-    // 1. Verify Signature (Security)
-    if (webhookSecret) {
-      if (!signature) {
-        res.status(401).json({ message: 'No signature provided' });
-        return;
-      }
-
-      const hmac = crypto.createHmac('sha256', webhookSecret);
-      hmac.update(req.rawBody); // req.rawBody is captured in app.ts
-      const calculatedDigest = hmac.digest('hex');
-
-      if (signature !== calculatedDigest) {
-        console.error('Sumsub Webhook: Invalid signature');
-        res.status(401).json({ message: 'Invalid signature' });
-        return;
-      }
-    } else {
-      console.warn('SUMSUB_WEBHOOK_SECRET not set. Webhook verification skipped (UNSAFE).');
+    // H6: always verify signature — reject unconditionally if secret not configured or sig absent.
+    if (!env.SUMSUB_WEBHOOK_SECRET) {
+      console.error('Sumsub Webhook: SUMSUB_WEBHOOK_SECRET not configured; rejecting request.');
+      res.status(401).json({ message: 'Webhook not configured' });
+      return;
+    }
+    if (!signature) {
+      res.status(401).json({ message: 'No signature provided' });
+      return;
+    }
+    // Restrict to known HMAC algorithms to prevent algorithm-confusion attacks.
+    const allowedAlgs = new Set(['sha256', 'sha512']);
+    if (!allowedAlgs.has(digestAlg)) {
+      res.status(400).json({ message: 'Unsupported digest algorithm' });
+      return;
+    }
+    const hmac = crypto.createHmac(digestAlg, env.SUMSUB_WEBHOOK_SECRET);
+    hmac.update(req.rawBody);
+    const calculatedDigest = hmac.digest('hex');
+    if (signature !== calculatedDigest) {
+      console.error('Sumsub Webhook: Invalid signature');
+      res.status(401).json({ message: 'Invalid signature' });
+      return;
     }
 
     // 2. Process Payload
     const { type, externalUserId, reviewStatus, reviewResult } = req.body;
 
-    console.log(`Sumsub Webhook [${type}] received for: ${externalUserId}`);
+    // H7: validate externalUserId (wallet address) before any DB query
+    const extAddr = normalizeAddress(externalUserId);
+    if (!extAddr) {
+      console.error(`Sumsub Webhook: invalid externalUserId: ${externalUserId}`);
+      res.status(400).json({ message: 'Invalid externalUserId' });
+      return;
+    }
+
+    console.log(`Sumsub Webhook [${type}] received for: ${extAddr}`);
 
     if (type === 'applicantReviewed') {
       const isApproved = reviewResult?.reviewAnswer === 'GREEN';
       const kycStatus = isApproved ? 'VERIFIED' : 'REJECTED';
 
       await User.updateOne(
-        { walletAddress: { $regex: new RegExp(`^${externalUserId}$`, 'i') } },
-        { 
-            kycStatus: kycStatus,
+        { walletAddress: { $regex: `^${extAddr}$`, $options: 'i' } },
+        {
+            kycStatus,
             kycRejectionReasons: isApproved ? [] : (reviewResult?.rejectLabels || []),
             kycComment: isApproved ? '' : (reviewResult?.clientComment || reviewResult?.moderationComment || ''),
             kycIsFinal: isApproved ? false : (reviewResult?.reviewRejectType === 'FINAL')
         }
       );
 
-      console.log(`User ${externalUserId} KYC updated to: ${kycStatus}`);
+      console.log(`User ${extAddr} KYC updated to: ${kycStatus}`);
     } else if (type === 'applicantCreated') {
       await User.updateOne(
-        { walletAddress: { $regex: new RegExp(`^${externalUserId}$`, 'i') } },
+        { walletAddress: { $regex: `^${extAddr}$`, $options: 'i' } },
         { kycStatus: 'INCOMPLETE', kycRejectionReasons: [], kycComment: '', kycIsFinal: false }
       );
-      console.log(`User ${externalUserId} KYC updated to: INCOMPLETE (via ${type})`);
+      console.log(`User ${extAddr} KYC updated to: INCOMPLETE (via ${type})`);
     } else if (['applicantPending', 'applicantReset', 'applicantOnHold'].includes(type)) {
       await User.updateOne(
-        { walletAddress: { $regex: new RegExp(`^${externalUserId}$`, 'i') } },
+        { walletAddress: { $regex: `^${extAddr}$`, $options: 'i' } },
         { kycStatus: 'PENDING', kycRejectionReasons: [], kycComment: '', kycIsFinal: false }
       );
-      console.log(`User ${externalUserId} KYC updated to: PENDING (via ${type})`);
+      console.log(`User ${extAddr} KYC updated to: PENDING (via ${type})`);
     }
 
     // Always return 200 to Sumsub

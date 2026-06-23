@@ -51,14 +51,23 @@ This system is complex and has a specific order of dependencies.
 ### Step 4.1: Deploy Oracle Module
 *   **Contract:** `src/new_perp/src/oracle/OracleModule.sol` -> `OracleModule`
 *   **Constructor:** `None`
-*   **Purpose:** Standardizes price feeds (Chainlink/DEX adapters) for the Market.
+*   **Purpose:** Standardizes price feeds (Chainlink) for the Market.
+*   **After deploy (C5/M2):** for each market's feed call
+    `oracleModule.setFeedMaxStale(feed, heartbeatSeconds)` (match the Chainlink feed's heartbeat),
+    and optionally `oracleModule.setFeedBounds(feed, minE18, maxE18)`.
 
-### Step 4.2: Deploy Dex Price Adapters (One per Market)
-*   **Contract:** `src/new_perp/src/oracle/DexPriceAdapter.sol` -> `DexPriceAdapter`
-*   **Constructor:** `(address _dexRouter, address[] memory _path, uint8 _decimals)`
-    *   `_dexRouter`: Address of AMM Router (Step 1.2).
-    *   `_path`: Array of [Token, QuoteToken] (e.g., `[ETH_Address, USDC_Address]`).
-    *   `_decimals`: Decimals of the price (usually 8).
+### Step 4.2: Use the Chainlink price feed (NOT a DEX adapter)
+> ⚠️ **C5:** Do **NOT** use `DexPriceAdapter` for perp markets. A DEX spot price is flash-loan
+> manipulable within a single transaction, and the adapter stamps `updatedAt = block.timestamp`
+> so the staleness check can never catch a manipulated price. Wire markets to a real **Chainlink
+> `<BASE>/USD` aggregator** instead.
+
+*   **No contract to deploy** — use the on-chain Chainlink aggregator address directly.
+*   **BSC mainnet feeds (8-dec, USD):**
+    *   ETH/USD: `0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e`
+    *   BTC/USD: `0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf`
+    *   BNB/USD: `0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE`
+*   The `DeployNewPerpBSC.s.sol` script wires these automatically (override via `PRICE_FEED_ADDRESS`).
 
 ### Step 4.3: Deploy Perpetual Router
 *   **Contract:** `src/new_perp/src/router/Router.sol` -> `Router`
@@ -83,7 +92,7 @@ This system is complex and has a specific order of dependencies.
     1.  `symbol` (string): "ETH"
     2.  `quoteToken` (address): USDC Address
     3.  `oracleModule` (address): Oracle Module (Step 4.1)
-    4.  `oracleAddress` (address): DexPriceAdapter (Step 4.2)
+    4.  `priceFeed` (address): Chainlink `<BASE>/USD` aggregator (Step 4.2)
     5.  `positionManager` (address): Position Manager (Step 4.4)
 *   **Returns:** `(marketAddress, vaultAddress)`
 
@@ -114,12 +123,12 @@ This system is complex and has a specific order of dependencies.
 2.  [ ] **AMM Router** (needs Factory)
 3.  [ ] **P2P Escrow**
 4.  [ ] **Limit Order Protocol**
-5.  [ ] **Oracle Module**
-6.  [ ] **Dex Price Adapters** (needs AMM Router)
+5.  [ ] **Oracle Module** (then `setFeedMaxStale` per Chainlink feed — C5/M2)
+6.  [ ] **Chainlink price feeds** (use on-chain addresses; NO DexPriceAdapter for perps — C5)
 7.  [ ] **Perp Router** (needs USDC)
 8.  [ ] **Position Manager** (needs Perp Router)
 9.  [ ] **Link Perp Router <-> Position Manager**
 10. [ ] **Perp Market Factory**
-11. [ ] **Create Markets** (needs tokens, Oracle Mod, Adapter, PM)
+11. [ ] **Create Markets** (needs tokens, Oracle Mod, Chainlink feed, PM)
 12. [ ] **Copy Trading Vault Impl**
 13. [ ] **Copy Trading Factory** (needs Vault Impl, Executor, AMM Router)

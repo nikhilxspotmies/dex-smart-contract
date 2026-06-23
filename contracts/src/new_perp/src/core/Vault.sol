@@ -19,6 +19,11 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
     uint256 public immutable quoteScale;
     address public market; // only market can pull funds
 
+    /// @notice Dead shares permanently locked on the first deposit to block first-depositor
+    /// share-inflation / donation attacks (H2). Critical when quoteScale == 1 (18-dec quote, BSC).
+    uint256 private constant MINIMUM_LIQUIDITY = 1e3;
+    address private constant DEAD = address(0xdead);
+
     error NotMarket();
     error InsufficientLiquidity();
     error MarketAlreadySet();
@@ -56,10 +61,16 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
 
         uint256 shares;
         if (_totalSupply == 0 || _totalAssets == 0) {
-            shares = amount * quoteScale; // scale to 18-dec LP basis
+            uint256 minted = amount * quoteScale; // scale to 18-dec LP basis
+            // H2: lock MINIMUM_LIQUIDITY dead shares on first deposit so totalSupply can never
+            // be driven to ~1, which is what makes the donation/inflation attack profitable.
+            require(minted > MINIMUM_LIQUIDITY, "first deposit too small");
+            _mint(DEAD, MINIMUM_LIQUIDITY);
+            shares = minted - MINIMUM_LIQUIDITY;
         } else {
             shares = (amount * _totalSupply) / _totalAssets;
         }
+        require(shares > 0, "zero shares");
         _mint(to, shares);
     }
 

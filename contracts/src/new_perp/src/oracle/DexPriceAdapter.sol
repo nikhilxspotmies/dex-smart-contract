@@ -9,8 +9,15 @@ interface IMinimalERC20 {
     function decimals() external view returns (uint8);
 }
 
-/// @notice Adapter to use DEX Router price as Oracle Source
-/// @dev Implements Chainlink AggregatorV3Interface (subset needed for OracleModule)
+/// @notice Adapter to use DEX Router price as Oracle Source.
+/// @dev Implements Chainlink AggregatorV3Interface (subset needed for OracleModule).
+///
+/// ⚠️ SECURITY (C5): DO NOT use this as the price oracle for perpetual markets. It reads a
+/// live AMM spot price via `getAmountsOut`, which is manipulable within a single transaction
+/// (flash-loan: skew reserves -> open/close/liquidate at the distorted price -> unwind). It also
+/// stamps `updatedAt = block.timestamp`, defeating OracleModule's staleness check. Perp markets
+/// must be wired to a real Chainlink feed (see DeployNewPerpBSC). Kept only for non-security-
+/// critical/display use and tests.
 contract DexPriceAdapter {
     address public dexRouter;
     address[] public path; // [BaseToken, QuoteToken] (e.g., BTC -> USDC)

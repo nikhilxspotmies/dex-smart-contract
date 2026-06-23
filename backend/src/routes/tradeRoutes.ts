@@ -8,6 +8,6 @@ const router = express.Router();
 router.post('/create', protect, requireKYC, createTrade);
 router.post('/release', protect, requireKYC, releaseFunds); 
 router.post('/report-not-received', protect, requireKYC, reportNotReceived);
-router.get('/user/:address', getTradesByUser)
+router.get('/user/:address', protect, getTradesByUser)
 
 export default router;

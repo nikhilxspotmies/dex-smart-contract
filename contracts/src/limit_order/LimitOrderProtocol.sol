@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -15,7 +15,6 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
  */
 contract LimitOrderProtocol is EIP712 {
     using SafeERC20 for IERC20;
-    using ECDSA for bytes32;
 
     bytes32 private constant _ORDER_TYPEHASH = keccak256(
         "Order(address makerAsset,address takerAsset,address maker,uint256 makingAmount,uint256 takingAmount,uint256 salt,uint256 deadline)"
@@ -121,13 +120,19 @@ contract LimitOrderProtocol is EIP712 {
         uint256 alreadyFilled = filledAmount[orderHash];
         require(alreadyFilled + fillAmount <= order.makingAmount, "Fill exceeds remaining amount");
 
-        // Verify signature
-        address signer = _hashTypedDataV4(orderHash).recover(signature);
-        require(signer == order.maker, "Invalid signature");
+        // Verify signature. SignatureChecker accepts both EOA (ECDSA) signatures and
+        // EIP-1271 contract-wallet signatures, so smart-contract wallets can place orders. (L1)
+        bytes32 digest = _hashTypedDataV4(orderHash);
+        require(
+            SignatureChecker.isValidSignatureNow(order.maker, digest, signature),
+            "Invalid signature"
+        );
 
-        // Calculate taker amount proportional to the fill amount (supporting partial fills)
-        // takerAmount = (takingAmount * fillAmount) / makingAmount
-        uint256 takerAmount = (order.takingAmount * fillAmount) / order.makingAmount;
+        // Calculate taker amount proportional to the fill amount (supporting partial fills).
+        // L1: round UP (ceil) so rounding favors the maker, never the taker, on tiny fills.
+        // takerAmount = ceil(takingAmount * fillAmount / makingAmount)
+        uint256 takerAmount =
+            (order.takingAmount * fillAmount + order.makingAmount - 1) / order.makingAmount;
         require(takerAmount > 0, "Taker amount too small");
 
         // Update state before external calls

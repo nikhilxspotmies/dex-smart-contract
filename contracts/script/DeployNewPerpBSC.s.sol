@@ -8,55 +8,62 @@ import {PositionManager} from "../src/new_perp/src/router/PositionManager.sol";
 import {MarketFactory} from "../src/new_perp/src/core/MarketFactory.sol";
 import {Market} from "../src/new_perp/src/core/Market.sol";
 import {Vault} from "../src/new_perp/src/core/Vault.sol";
-import {DexPriceAdapter} from "../src/new_perp/src/oracle/DexPriceAdapter.sol";
 
 /**
- * @notice Script to deploy New Perp contracts on BSC
+ * @notice Deploy New Perp contracts on BSC.
+ *
+ * C5 FIX: perp markets are priced from a **Chainlink** aggregator, NOT the DEX-spot
+ * `DexPriceAdapter` (a single-tx flash-loan-manipulable source). `OracleModule.getPrice`
+ * already validates round-completeness + staleness, and we set a per-feed staleness window
+ * (M2) matched to the Chainlink feed's heartbeat.
+ *
+ * Required env (per market):
+ *   PRICE_FEED_ADDRESS   - Chainlink <BASE>/USD aggregator on BSC (overrides the symbol default)
+ *   BASE_SYMBOL          - e.g. ETH / BTC / BNB (default ETH)
+ *   USDC_ADDRESS         - quote token (default BSC USDC)
+ *   PRICE_FEED_MAX_STALE - seconds; match the feed heartbeat (default 3600 = 1h, conservative)
+ *   PRICE_FEED_MIN_E18 / PRICE_FEED_MAX_E18 - optional sanity bounds on the 1e18 price (0 = skip)
  */
 contract DeployNewPerpBSC is Script {
-    // DEX Addresses provided by user
-    address constant DEX_FACTORY = 0xecb64015331902795323b56A04710e2d6cC3A21d;
-    address constant DEX_ROUTER = 0x104835d5Df633E685DA07d853B78D3d9369649BF;
-
     function run() external {
-        // Use vm.startBroadcast() without arguments to use the signer provided via --private-key or --ledger etc.
         vm.startBroadcast();
-        
+
         address deployer = msg.sender;
-        
+
         // BSC Mainnet USDC: 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d
         address usdcAddress = vm.envOr("USDC_ADDRESS", address(0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d));
-        
+
         string memory baseSymbol = vm.envOr("BASE_SYMBOL", string("ETH"));
-        
-        // Base token address (needed for DexPriceAdapter path)
-        address baseToken;
-        if (keccak256(bytes(baseSymbol)) == keccak256(bytes("ETH"))) {
-            baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0xa2E3356610840701BDf5611a53974510Ae27E2e1));
-        } else if (keccak256(bytes(baseSymbol)) == keccak256(bytes("BTC"))) {
-            baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c));
-        } else {
-            baseToken = vm.envOr("BASE_TOKEN_ADDRESS", address(0));
-            require(baseToken != address(0), "BASE_TOKEN_ADDRESS must be set for non-ETH/BTC symbols");
-        }
-        
+
+        // C5: resolve the Chainlink <BASE>/USD feed (BSC mainnet defaults; override via env).
+        address priceFeed = _resolvePriceFeed(baseSymbol);
+        require(priceFeed != address(0), "PRICE_FEED_ADDRESS must be set");
+
+        uint256 maxStale = vm.envOr("PRICE_FEED_MAX_STALE", uint256(3600));
+        uint256 minE18 = vm.envOr("PRICE_FEED_MIN_E18", uint256(0));
+        uint256 maxE18 = vm.envOr("PRICE_FEED_MAX_E18", uint256(0));
+
         console.log("Deploying New Perp on BSC...");
         console.log("Deployer:", deployer);
         console.log("Quote Token (USDC):", usdcAddress);
-        console.log("Base Token (%s): %s", baseSymbol, baseToken);
-        console.log("DEX Router:", DEX_ROUTER);
+        console.log("Base Symbol:", baseSymbol);
+        console.log("Chainlink Price Feed:", priceFeed);
+        console.log("Feed max-stale (s):", maxStale);
 
         // 1. Oracle Module
         OracleModule oracleModule = new OracleModule();
         console.log("OracleModule:", address(oracleModule));
 
-        // 2. Deploy DexPriceAdapter
-        address[] memory path = new address[](2);
-        path[0] = baseToken;
-        path[1] = usdcAddress;
-        
-        DexPriceAdapter dexAdapter = new DexPriceAdapter(DEX_ROUTER, path, 8);
-        console.log("DexPriceAdapter:", address(dexAdapter));
+        // 2. C5/M2: configure the feed's staleness window (and optional sanity bounds).
+        oracleModule.setFeedMaxStale(priceFeed, maxStale);
+        if (minE18 != 0 || maxE18 != 0) {
+            oracleModule.setFeedBounds(priceFeed, minE18, maxE18);
+            console.log("Feed bounds set [min,max] (1e18):", minE18, maxE18);
+        }
+
+        // Sanity: the feed must already return a valid, fresh price, or markets can't price.
+        uint256 spot = oracleModule.getPrice(priceFeed);
+        console.log("Current feed price (1e18):", spot);
 
         // 3. Router
         Router router = new Router(usdcAddress);
@@ -74,13 +81,12 @@ contract DeployNewPerpBSC is Script {
         MarketFactory factory = new MarketFactory();
         console.log("MarketFactory:", address(factory));
 
-        // 7. Create Market using DexAdapter as Oracle
-        // The factory will now correctly set the positionManager and owner
+        // 7. Create Market priced by the Chainlink feed (C5).
         (address market, address vault) = factory.createMarket(
             baseSymbol,
             usdcAddress,
             address(oracleModule),
-            address(dexAdapter),
+            priceFeed,
             address(positionManager)
         );
         console.log("Market (%s): %s", baseSymbol, market);
@@ -95,5 +101,21 @@ contract DeployNewPerpBSC is Script {
         console.log("VITE_PERP_VAULT_ADDRESS=", vault);
         console.log("VITE_PERP_POSITION_MANAGER_ADDRESS=", address(positionManager));
         console.log("VITE_USDC_ADDRESS=", usdcAddress);
+    }
+
+    /// @dev BSC mainnet Chainlink <BASE>/USD aggregators; PRICE_FEED_ADDRESS overrides.
+    function _resolvePriceFeed(string memory baseSymbol) internal view returns (address) {
+        bytes32 sym = keccak256(bytes(baseSymbol));
+        address fallbackFeed;
+        if (sym == keccak256(bytes("ETH"))) {
+            fallbackFeed = 0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e; // ETH/USD
+        } else if (sym == keccak256(bytes("BTC"))) {
+            fallbackFeed = 0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf; // BTC/USD
+        } else if (sym == keccak256(bytes("BNB"))) {
+            fallbackFeed = 0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE; // BNB/USD
+        } else {
+            fallbackFeed = address(0); // unknown symbol -> must pass PRICE_FEED_ADDRESS
+        }
+        return vm.envOr("PRICE_FEED_ADDRESS", fallbackFeed);
     }
 }

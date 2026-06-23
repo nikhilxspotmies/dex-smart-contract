@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import User from '../models/User.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 
 const MARKET_ADDRESS = process.env.PERP_MARKET_ADDRESS || "0x_UNKNOWN_MARKET";
 
@@ -45,19 +46,24 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
 
             // Referral Logic
             try {
-                const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } });
-
-                if (currentUser && !currentUser.hasDoneFirstTrade) {
-                    if (currentUser.referredBy) {
-                        const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
-                        if (referrer) {
-                            referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                            await referrer.save();
-                            console.log(`Referral Reward (Perp): ${referrer.walletAddress} received 100 points`);
+                // H1: validate address format before use in query (prevents regex injection/ReDoS)
+                const perpAddr = normalizeAddress(walletAddress);
+                if (perpAddr) {
+                    const currentUser = await User.findOne({ walletAddress: { $regex: `^${perpAddr}$`, $options: 'i' } });
+                    if (currentUser && !currentUser.hasDoneFirstTrade) {
+                        if (currentUser.referredBy) {
+                            const refAddr = normalizeAddress(currentUser.referredBy);
+                            if (refAddr) {
+                                await User.updateOne(
+                                    { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                                    { $inc: { referralPoints: 100 } }
+                                );
+                                console.log(`Referral Reward (Perp): received 100 points for referring ${perpAddr}`);
+                            }
                         }
+                        currentUser.hasDoneFirstTrade = true;
+                        await currentUser.save();
                     }
-                    currentUser.hasDoneFirstTrade = true;
-                    await currentUser.save();
                 }
             } catch (refError) {
                 console.error("Referral Logic Error (Perp):", refError);

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import { sanitizeRequest } from './middleware/sanitizeMiddleware.js';
 import tradeRoutes from './routes/tradeRoutes.js';
 import listingRoutes from './routes/listingRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -35,6 +36,10 @@ app.use(express.json({
         req.rawBody = buf;
     }
 }));
+
+// AMX-12: strip MongoDB operator keys ($-prefixed) from request input.
+// Mounted AFTER express.json() so req.body is populated before sanitization.
+app.use(sanitizeRequest);
 
 app.use('/api/trade', tradeRoutes);
 app.use('/api/listing', listingRoutes);

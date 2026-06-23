@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import PerpTrade, { TradeStatus } from '../models/PerpTrade.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 
 // F-07: issue a one-time SIWE nonce for a wallet address
 export const getNonce = async (req: Request, res: Response) => {
@@ -337,31 +338,42 @@ export const processFirstTrade = async (req: Request, res: Response) => {
             return;
         }
 
-        const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } });
-
-        if (!currentUser) {
-            res.status(404).json({ message: 'User not found' });
+        // H1/M4: validate address format before use in any query
+        const addr = normalizeAddress(walletAddress);
+        if (!addr) {
+            res.status(400).json({ message: 'Invalid wallet address' });
             return;
         }
 
-        if (currentUser.hasDoneFirstTrade) {
+        // M4: atomic "set hasDoneFirstTrade true only if it was false" — prevents race-condition
+        // double-reward if this endpoint is called concurrently for the same user.
+        const prevUser = await User.findOneAndUpdate(
+            { walletAddress: { $regex: `^${addr}$`, $options: 'i' }, hasDoneFirstTrade: { $ne: true } },
+            { $set: { hasDoneFirstTrade: true } },
+            { new: false }
+        );
+
+        if (!prevUser) {
+            const exists = await User.exists({ walletAddress: { $regex: `^${addr}$`, $options: 'i' } });
+            if (!exists) {
+                res.status(404).json({ message: 'User not found' });
+                return;
+            }
             res.status(200).json({ message: 'User has already completed first trade', rewarded: false });
             return;
         }
 
-        // Award referral points
-        if (currentUser.referredBy) {
-            const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
-            if (referrer) {
-                referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                await referrer.save();
-                console.log(`Referral Reward (External): ${referrer.walletAddress} received 100 points for referring ${walletAddress}`);
+        // Award referral points atomically (avoids read-modify-write race on referralPoints)
+        if (prevUser.referredBy) {
+            const refAddr = normalizeAddress(prevUser.referredBy);
+            if (refAddr) {
+                await User.updateOne(
+                    { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                    { $inc: { referralPoints: 100 } }
+                );
+                console.log(`Referral Reward (External): received 100 points for referring ${addr}`);
             }
         }
-
-        // Mark first trade as done
-        currentUser.hasDoneFirstTrade = true;
-        await currentUser.save();
 
         res.status(200).json({ message: 'First trade processed, referral rewarded', rewarded: true });
     } catch (error) {
@@ -400,12 +412,18 @@ export const deleteAccount = async (req: any, res: Response) => {
         }
 
         const walletAddress = user.walletAddress;
+        // H1: normalize address from session before use in queries
+        const walletAddr = normalizeAddress(walletAddress);
+        if (!walletAddr) {
+            res.status(400).json({ message: 'Invalid wallet address in session' });
+            return;
+        }
 
         // --- Pre-flight checks ---
 
         // 1. Check for OPEN perpetual positions
         const openPerpPositions = await PerpTrade.countDocuments({
-            walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') },
+            walletAddress: { $regex: `^${walletAddr}$`, $options: 'i' },
             status: TradeStatus.OPEN
         });
 
@@ -419,8 +437,8 @@ export const deleteAccount = async (req: any, res: Response) => {
         // 2. Check for active P2P trades (Proposed or Locked)
         const activeP2PTrades = await Trade.countDocuments({
             $or: [
-                { buyer: { $regex: new RegExp(`^${walletAddress}$`, 'i') } },
-                { seller: { $regex: new RegExp(`^${walletAddress}$`, 'i') } }
+                { buyer: { $regex: `^${walletAddr}$`, $options: 'i' } },
+                { seller: { $regex: `^${walletAddr}$`, $options: 'i' } }
             ],
             status: { $in: ['Proposed', 'Locked'] }
         });
@@ -434,7 +452,7 @@ export const deleteAccount = async (req: any, res: Response) => {
 
         // 3. Check for active listings
         const activeListings = await Listing.countDocuments({
-            seller: { $regex: new RegExp(`^${walletAddress}$`, 'i') },
+            seller: { $regex: `^${walletAddr}$`, $options: 'i' },
             active: true
         });
 
@@ -450,7 +468,7 @@ export const deleteAccount = async (req: any, res: Response) => {
         user.deletedAt = new Date();
         await user.save();
 
-        console.log(`Account soft-deleted: ${walletAddress} at ${user.deletedAt.toISOString()}`);
+        console.log(`Account soft-deleted: ${walletAddr} at ${user.deletedAt.toISOString()}`);
 
         // F-06: clear the session cookie
         clearAuthCookie(res);

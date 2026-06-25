@@ -41,7 +41,7 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
                     status: TradeStatus.OPEN,
                     openTxHash: txHash
                 },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
+                { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
             );
 
             // Referral Logic
@@ -85,7 +85,7 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
                     // Frontend 'CLOSE' usually implies full close in this context unless partial specified
                     collateral: "0"
                 },
-                { new: true }
+                { returnDocument: "after" }
             );
 
             if (trade) {

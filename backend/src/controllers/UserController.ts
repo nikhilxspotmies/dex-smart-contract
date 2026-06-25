@@ -27,7 +27,7 @@ export const getNonce = async (req: Request, res: Response) => {
         await Nonce.findOneAndUpdate(
             { address },
             { address, nonce, expiresAt },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: "after" }
         );
 
         res.status(200).json({ nonce });

@@ -226,7 +226,7 @@ class BlockchainService {
                         pricePerToken: Number(price),
                         active: true
                     },
-                    { upsert: true, new: true }
+                    { upsert: true, returnDocument: "after" }
                 );
                 console.log(`Listing ${lId} indexed/updated.`);
 
@@ -279,7 +279,7 @@ class BlockchainService {
                             pricePerToken: Number(p),
                             status: 'Proposed'
                         },
-                        { upsert: true, new: true }
+                        { upsert: true, returnDocument: "after" }
                     );
                     console.log(`Trade ${pId} created/updated in DB.`);
                 } else {

@@ -113,10 +113,14 @@ export class RequestKeeper {
 
                 console.log(`DEBUG: Request ${id} data:`, JSON.stringify(request, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
-                if (request.exists || request[9] === true) {
-                    console.log(`Executing request ${id} (${request.isIncrease ? "Increase" : "Decrease"}) for user ${request.user}`);
+                const exists = request[9] === true || request.exists === true;
+                const isIncrease = request[8] === true;
+                const user = request[0];
 
-                    const method = request.isIncrease ? "executeIncrease" : "executeDecrease";
+                if (exists) {
+                    console.log(`Executing request ${id} (${isIncrease ? "Increase" : "Decrease"}) for user ${user}`);
+
+                    const method = isIncrease ? "executeIncrease" : "executeDecrease";
                     const tx = prepareContractCall({
                         contract: pmContract,
                         method: `function ${method}(uint256 requestId)`,
@@ -142,7 +146,7 @@ export class RequestKeeper {
                         method: "function getRequest(uint256) view returns (address user, address market, uint256 positionId, uint256 sizeDelta, uint256 collateralDelta, bool isLong, uint256 acceptablePrice, uint256 executionFee, bool isIncrease, bool exists)",
                         params: [id],
                     }) as any;
-                    if (!checkReq.exists) {
+                    if (!(checkReq[9] === true || checkReq.exists === true)) {
                         console.log(`Request ${id} no longer exists, marking as processed.`);
                         this.lastProcessedRequestId = id + 1n;
                     } else {

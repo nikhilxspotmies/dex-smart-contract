@@ -4,13 +4,17 @@
  */
 
 const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL || 'http://localhost:3000';
+const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
 
 export async function processFirstTradeReferral(walletAddress: string): Promise<void> {
     console.log(`[DEBUG] Calling referral endpoint for wallet: ${walletAddress}`);
     try {
         const response = await fetch(`${MAIN_BACKEND_URL}/api/user/referral/first-trade`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Key': INTERNAL_SERVICE_KEY,
+            },
             body: JSON.stringify({ walletAddress })
         });
 

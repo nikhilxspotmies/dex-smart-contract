@@ -13,6 +13,12 @@ import { env } from './config/env.js';
 
 const app = express();
 
+// Behind a load balancer / reverse proxy, trust exactly N hops so req.ip is the real client
+// (per-IP rate limiting). NOT `true` — that lets clients spoof X-Forwarded-For.
+if (env.TRUST_PROXY_HOPS > 0) {
+    app.set('trust proxy', env.TRUST_PROXY_HOPS);
+}
+
 // F-06: credentialed CORS reflecting the allowlist (no Origin = server-to-server, allowed)
 app.use(cors({
     origin: (origin, callback) => {
@@ -23,7 +29,7 @@ app.use(cors({
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204

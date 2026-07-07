@@ -1,15 +1,35 @@
 import type { Request, Response } from 'express';
+import crypto from 'crypto';
 import { SiweMessage, generateNonce } from 'siwe';
 import User from '../models/User.js';
 import Nonce from '../models/Nonce.js';
-import generateToken from '../utils/generateToken.js';
-import { setAuthCookie, clearAuthCookie } from '../utils/authCookie.js';
+import RefreshToken from '../models/RefreshToken.js';
+import signAccessToken from '../utils/generateToken.js';
+import {
+    setAccessCookie,
+    setRefreshCookie,
+    setCsrfCookie,
+    clearAuthCookies,
+    REFRESH_COOKIE,
+} from '../utils/authCookie.js';
+import { hashToken, issueRefreshToken, revokeFamily, revokeAllForUser } from '../utils/refreshToken.js';
+import { issueCsrfToken } from '../utils/csrf.js';
 import { env } from '../config/env.js';
 import bcrypt from 'bcrypt';
 import PerpTrade, { TradeStatus } from '../models/PerpTrade.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
 import { normalizeAddress } from '../utils/addressUtils.js';
+
+// Start a session: issue a new family + access/refresh/csrf cookies. Used by register & login.
+const startSession = async (res: Response, userId: string): Promise<void> => {
+    const familyId = crypto.randomUUID();
+    const familyCreatedAt = new Date();
+    setAccessCookie(res, signAccessToken(userId, familyId));
+    const { raw } = await issueRefreshToken(userId, familyId, familyCreatedAt);
+    setRefreshCookie(res, raw);
+    setCsrfCookie(res, issueCsrfToken(familyId));
+};
 
 // F-07: issue a one-time SIWE nonce for a wallet address
 export const getNonce = async (req: Request, res: Response) => {
@@ -142,9 +162,8 @@ export const register = async (req: Request, res: Response) => {
 
         await newUser.save();
 
-        // F-06: JWT set as HttpOnly cookie (also in body for header clients)
-        const token = generateToken(newUser._id.toString());
-        setAuthCookie(res, token);
+        // F-06: start a rotating session (access + refresh + csrf cookies)
+        await startSession(res, newUser._id.toString());
 
         res.status(201).json({
             message: 'User registered successfully',
@@ -191,8 +210,7 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
-            const token = generateToken(user._id.toString());
-            setAuthCookie(res, token);
+            await startSession(res, user._id.toString());
 
             res.status(200).json({
                 message: 'Login successful',
@@ -233,8 +251,7 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
-            const token = generateToken(user._id.toString());
-            setAuthCookie(res, token);
+            await startSession(res, user._id.toString());
 
             res.status(200).json({
                 message: 'Login successful',
@@ -304,8 +321,10 @@ export const updateUserProfile = async (req: any, res: Response) => {
 
         const updatedUser = await user.save();
 
-        const token = generateToken(updatedUser._id.toString());
-        setAuthCookie(res, token);
+        // refresh the access cookie in-place, keeping the same session family (fid)
+        if (req.familyId) {
+            setAccessCookie(res, signAccessToken(updatedUser._id.toString(), req.familyId));
+        }
 
         res.json({
             UserName: updatedUser.UserName,
@@ -319,10 +338,116 @@ export const updateUserProfile = async (req: any, res: Response) => {
     }
 };
 
-// F-06: clear the session cookie
-export const logout = async (_req: Request, res: Response) => {
-    clearAuthCookie(res);
+/**
+ * Rotate the session: exchange a valid refresh token for a fresh access token (+ rotated refresh).
+ * Public route (the refresh cookie IS the credential) but CSRF-checked.
+ * Implements atomic single-spend + grace window + reuse detection.
+ */
+export const refresh = async (req: Request, res: Response) => {
+    try {
+        const raw = req.cookies?.[REFRESH_COOKIE];
+        if (!raw) {
+            res.status(401).json({ message: 'no_refresh' });
+            return;
+        }
+
+        const tokenHash = hashToken(raw);
+        const row = await RefreshToken.findOne({ tokenHash });
+        if (!row) {
+            res.status(401).json({ message: 'unknown' });
+            return;
+        }
+
+        const now = Date.now();
+        if (row.revokedAt) {
+            res.status(401).json({ message: 'revoked' });
+            return;
+        }
+        if (row.expiresAt.getTime() < now) {
+            res.status(401).json({ message: 'expired' });
+            return;
+        }
+        if (now - row.familyCreatedAt.getTime() > env.REFRESH_ABSOLUTE_TTL_MS) {
+            await revokeFamily(row.familyId);
+            clearAuthCookies(res);
+            res.status(401).json({ message: 'absolute_cap' });
+            return;
+        }
+
+        // ── ATOMIC SPEND: only one caller (across all pods) can flip usedAt. ──
+        const won = await RefreshToken.findOneAndUpdate(
+            { tokenHash, usedAt: { $exists: false } },
+            { $set: { usedAt: new Date() } },
+            { new: false }
+        );
+
+        if (won) {
+            // winner → rotate exactly once
+            const { raw: childRaw, doc: child } = await issueRefreshToken(
+                row.userId,
+                row.familyId,
+                row.familyCreatedAt
+            );
+            await RefreshToken.updateOne({ _id: row._id }, { $set: { replacedBy: child._id } });
+            setRefreshCookie(res, childRaw);
+            setAccessCookie(res, signAccessToken(row.userId.toString(), row.familyId));
+            setCsrfCookie(res, issueCsrfToken(row.familyId));
+            res.status(200).json({ ok: true });
+            return;
+        }
+
+        // lost the CAS, or a genuine replay — re-read to inspect
+        const cur = await RefreshToken.findOne({ tokenHash });
+        // Grace is purely TIME-based: if the token was spent < GRACE ago it's a benign
+        // concurrent refresh (multi-tab / retry / lost-CAS race). Do NOT also require
+        // `replacedBy` — the winner may not have written it yet, and gating on it caused
+        // false reuse-revocation under concurrency. Only spend that is OLD is real reuse.
+        if (cur?.usedAt && now - cur.usedAt.getTime() < env.REFRESH_GRACE_MS) {
+            // winner already set the child cookie in the shared jar; just mint a fresh access token.
+            setAccessCookie(res, signAccessToken(cur.userId.toString(), cur.familyId));
+            res.status(200).json({ ok: true });
+            return;
+        }
+
+        // outside grace / no valid child → real reuse or theft → kill the whole family
+        const fid = cur?.familyId ?? row.familyId;
+        await revokeFamily(fid);
+        clearAuthCookies(res);
+        console.warn('SECURITY refresh_reuse_detected', {
+            userId: (cur?.userId ?? row.userId)?.toString(),
+            familyId: fid,
+        });
+        res.status(401).json({ message: 'reuse_detected' });
+    } catch (error) {
+        console.error('refresh error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+// F-06: clear the session + revoke this family server-side (best-effort; works even if access expired)
+export const logout = async (req: Request, res: Response) => {
+    try {
+        const raw = req.cookies?.[REFRESH_COOKIE];
+        if (raw) {
+            const row = await RefreshToken.findOne({ tokenHash: hashToken(raw) });
+            if (row) await revokeFamily(row.familyId);
+        }
+    } catch (error) {
+        console.error('logout error:', error);
+    }
+    clearAuthCookies(res);
     res.status(200).json({ message: 'Logged out' });
+};
+
+// Revoke every session for the authenticated user (logout everywhere).
+export const logoutAll = async (req: any, res: Response) => {
+    try {
+        if (req.user?._id) await revokeAllForUser(req.user._id);
+    } catch (error) {
+        console.error('logoutAll error:', error);
+    }
+    clearAuthCookies(res);
+    res.status(200).json({ message: 'Logged out of all sessions' });
 };
 
 /**
@@ -470,8 +595,9 @@ export const deleteAccount = async (req: any, res: Response) => {
 
         console.log(`Account soft-deleted: ${walletAddr} at ${user.deletedAt.toISOString()}`);
 
-        // F-06: clear the session cookie
-        clearAuthCookie(res);
+        // F-06: revoke all sessions + clear cookies
+        await revokeAllForUser(user._id);
+        clearAuthCookies(res);
 
         res.status(200).json({
             message: 'Account deleted successfully'

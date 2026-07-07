@@ -27,6 +27,15 @@ if (IS_PROD && !INTERNAL_SERVICE_KEY) {
     throw new Error('INTERNAL_SERVICE_KEY must be set in production.');
 }
 
+// Session-rotation: CSRF signing secret. Fail fast on missing/weak/placeholder (same rule as JWT).
+const CSRF_SECRET = process.env.CSRF_SECRET;
+if (!CSRF_SECRET || CSRF_SECRET.length < 32 || WEAK_SECRETS.has(CSRF_SECRET)) {
+    throw new Error(
+        'CSRF_SECRET is missing, too short (<32 chars), or a known placeholder. ' +
+        'Set a strong random CSRF_SECRET in the environment before starting the server.'
+    );
+}
+
 // CORS allowlist (credentials mode forbids `*`)
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:8080,http://localhost:5173')
     .split(',')
@@ -49,14 +58,12 @@ const ALLOWED_SIWE_DOMAINS = Array.from(
 
 export const env = {
     JWT_SECRET: JWT_SECRET as string,
-    // C2: 5-day token expiry.
+    // C2 (legacy): kept for reference; access tokens now use ACCESS_TOKEN_TTL.
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '5d',
     // F-06: session-cookie config.
     NODE_ENV: process.env.NODE_ENV || 'development',
     IS_PROD,
     CORS_ORIGINS,
-    // Cookie maxAge in ms — mirror JWT_EXPIRES_IN (~5 days).
-    COOKIE_MAX_AGE_MS: Number(process.env.COOKIE_MAX_AGE_MS) || 5 * 24 * 60 * 60 * 1000,
     // F-07: SIWE login config.
     ALLOWED_SIWE_DOMAINS,
     // How long an issued login nonce stays valid (default 5 min).
@@ -65,4 +72,22 @@ export const env = {
     SUMSUB_WEBHOOK_SECRET,
     // M4: service-to-service auth key.
     INTERNAL_SERVICE_KEY,
+
+    // ── Refresh-token session rotation ──────────────────────────────────────
+    // Short-lived access token (JWT). Keep small — blast radius if leaked.
+    // NB: the access COOKIE lives as long as the refresh idle TTL (to carry `fid` for CSRF);
+    // only the JWT's own `exp` (this value) gates access.
+    ACCESS_TOKEN_TTL: process.env.ACCESS_TOKEN_TTL || '15m',
+    // Refresh token idle lifetime (default 30 days) — the "stay logged in" window.
+    REFRESH_IDLE_TTL_MS: Number(process.env.REFRESH_IDLE_TTL_MS) || 30 * 24 * 60 * 60 * 1000,
+    // Absolute cap on a session family regardless of activity (default 90 days).
+    REFRESH_ABSOLUTE_TTL_MS: Number(process.env.REFRESH_ABSOLUTE_TTL_MS) || 90 * 24 * 60 * 60 * 1000,
+    // Grace window in which a just-rotated refresh token is treated as benign (multi-tab/retry).
+    REFRESH_GRACE_MS: Number(process.env.REFRESH_GRACE_MS) || 20 * 1000,
+    // CSRF double-submit signing secret.
+    CSRF_SECRET: CSRF_SECRET as string,
+    // Optional cookie Domain (e.g. ".example.com" when frontend+backend share a parent domain).
+    COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || undefined,
+    // Number of trusted proxy hops in front of Express (LB/CDN/ingress). NOT `true`.
+    TRUST_PROXY_HOPS: Number(process.env.TRUST_PROXY_HOPS) || 0,
 };

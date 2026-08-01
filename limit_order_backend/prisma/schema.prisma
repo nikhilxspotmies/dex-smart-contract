@@ -20,18 +20,19 @@ enum OrderStatus {
 }
 
 model Order {
-  orderHash    String      @id
-  makerAsset   String
-  takerAsset   String
-  maker        String
-  makingAmount String
-  takingAmount String
-  salt         String
-  deadline     Int
-  signature    String
-  status       OrderStatus @default(OPEN)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  orderHash          String      @id
+  makerAsset         String
+  takerAsset         String
+  maker              String
+  makingAmount       String
+  takingAmount       String
+  salt               String
+  deadline           Int
+  signature          String
+  status             OrderStatus @default(OPEN)
+  filledMakingAmount String      @default("0")
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 }
 
 model LastTradedPrice {
@@ -44,6 +45,7 @@ model PriceHistory {
   id        String   @id @default(uuid())
   key       String
   price     String
+  volume    String   @default("0")
   timestamp Float
   createdAt DateTime @default(now())
 }

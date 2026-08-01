@@ -12,8 +12,8 @@ import { localhost, mainnet, bsc } from 'viem/chains';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
 import { TOKENS } from '../utils/tokenConfig.js';
 import { processFirstTradeReferral } from './referral.service.js';
-import { orders as allOrders, OrderStatus, lastTradedPrices, priceHistory } from '../controllers/orders.controller.js';
-import type { Order } from '../controllers/orders.controller.js';
+import { prisma, OrderStatus } from '../controllers/orders.controller.js';
+import type { Order } from '@prisma/client';
 import dotenv from 'dotenv';
 import fs from 'fs';
 
@@ -136,7 +136,7 @@ export class MatchingEngine {
 
     private async scanOrders() {
         try {
-            const openOrders = allOrders.filter((o: Order) => o.status === OrderStatus.OPEN);
+            const openOrders = await prisma.order.findMany({ where: { status: OrderStatus.OPEN } });
             if (openOrders.length > 0) {
                 logToFile(`Scanning ${openOrders.length} open orders...`);
             }
@@ -376,19 +376,22 @@ export class MatchingEngine {
             });
             console.log(`✅ Bid partial fill! TX: ${hash2}`);
 
-            // Update in-memory state
-            bid.filledMakingAmount = (BigInt(bid.filledMakingAmount) + matchSizeTKB).toString();
-            ask.filledMakingAmount = (BigInt(ask.filledMakingAmount) + matchSizeTKA).toString();
+            const newBidFilled = (BigInt(bid.filledMakingAmount) + matchSizeTKB).toString();
+            const newAskFilled = (BigInt(ask.filledMakingAmount) + matchSizeTKA).toString();
+            const bidStatus = BigInt(newBidFilled) >= BigInt(bid.makingAmount) ? OrderStatus.FILLED : OrderStatus.OPEN;
+            const askStatus = BigInt(newAskFilled) >= BigInt(ask.makingAmount) ? OrderStatus.FILLED : OrderStatus.OPEN;
 
-            if (BigInt(bid.filledMakingAmount) >= BigInt(bid.makingAmount)) {
-                bid.status = OrderStatus.FILLED;
-            }
-            if (BigInt(ask.filledMakingAmount) >= BigInt(ask.makingAmount)) {
-                ask.status = OrderStatus.FILLED;
-            }
+            await prisma.order.update({
+                where: { orderHash: bid.orderHash },
+                data: { filledMakingAmount: newBidFilled, status: bidStatus },
+            });
+            await prisma.order.update({
+                where: { orderHash: ask.orderHash },
+                data: { filledMakingAmount: newAskFilled, status: askStatus },
+            });
 
-            bid.updatedAt = new Date();
-            ask.updatedAt = new Date();
+            bid.filledMakingAmount = newBidFilled;
+            ask.filledMakingAmount = newAskFilled;
 
             console.log(`✨ Match partial/full execution completed!`);
             console.log(`   Bid Fill: ${bid.filledMakingAmount}/${bid.makingAmount}`);
@@ -411,15 +414,14 @@ export class MatchingEngine {
             const price = amountQuote / amountBase;
 
             const key = `${askSymbol}-${bidSymbol}`;
-            lastTradedPrices.set(key, price.toString());
 
-            if (!priceHistory.has(key)) {
-                priceHistory.set(key, []);
-            }
-            priceHistory.get(key)?.push({
-                price: price.toString(),
-                volume: amountQuote.toString(), // Store volume in quote currency
-                timestamp: Date.now()
+            await prisma.lastTradedPrice.upsert({
+                where: { key },
+                update: { price: price.toString() },
+                create: { key, price: price.toString() },
+            });
+            await prisma.priceHistory.create({
+                data: { key, price: price.toString(), volume: amountQuote.toString(), timestamp: Date.now() },
             });
 
             console.log(`   Updated Price for ${key}: ${price}`);
@@ -457,7 +459,7 @@ export class MatchingEngine {
 
     private async sanityCheckOrders() {
         try {
-            const openOrders = allOrders.filter(o => o.status === OrderStatus.OPEN);
+            const openOrders = await prisma.order.findMany({ where: { status: OrderStatus.OPEN } });
             console.log(`🔍 [${new Date().toLocaleTimeString()}] Sanity check: validating ${openOrders.length} orders...`);
             if (openOrders.length === 0) return;
 
@@ -488,8 +490,7 @@ export class MatchingEngine {
 
             if (balance < remainingMaking) {
                 console.log(`   🚫 Cancelling order ${order.orderHash.slice(0, 10)}: Insufficient Balance (${balance} < ${remainingMaking})`);
-                order.status = OrderStatus.CANCELLED;
-                order.updatedAt = new Date();
+                await prisma.order.update({ where: { orderHash: order.orderHash }, data: { status: OrderStatus.CANCELLED } });
                 return;
             }
 
@@ -503,8 +504,7 @@ export class MatchingEngine {
 
             if (allowance < remainingMaking) {
                 console.log(`   🚫 Cancelling order ${order.orderHash.slice(0, 10)}: Insufficient Allowance (${allowance} < ${remainingMaking})`);
-                order.status = OrderStatus.CANCELLED;
-                order.updatedAt = new Date();
+                await prisma.order.update({ where: { orderHash: order.orderHash }, data: { status: OrderStatus.CANCELLED } });
                 return;
             }
         } catch (error) {

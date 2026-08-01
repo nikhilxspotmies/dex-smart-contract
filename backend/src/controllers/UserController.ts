@@ -15,13 +15,12 @@ import {
 import { hashToken, issueRefreshToken, revokeFamily, revokeAllForUser } from '../utils/refreshToken.js';
 import { issueCsrfToken } from '../utils/csrf.js';
 import { env } from '../config/env.js';
-import bcrypt from 'bcrypt';
 import PerpTrade, { TradeStatus } from '../models/PerpTrade.js';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
 import { normalizeAddress } from '../utils/addressUtils.js';
 
-// Start a session: issue a new family + access/refresh/csrf cookies. Used by register & login.
+// Start a session: issue a new family + access/refresh/csrf cookies. Used by authenticate.
 const startSession = async (res: Response, userId: string): Promise<void> => {
     const familyId = crypto.randomUUID();
     const familyCreatedAt = new Date();
@@ -97,181 +96,104 @@ const verifyWalletOwnership = async (
     return true;
 };
 
-export const register = async (req: Request, res: Response) => {
-    console.log("Registering user...");
-    try {
-        const { UserName, email, walletAddress, firstName, lastName, password, referralCode } = req.body;
+// Unique 6-char referral code (retries on the rare collision).
+const generateReferralCode = async (): Promise<string> => {
+    for (;;) {
+        const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+        if (!(await User.findOne({ referralCode: code }))) return code;
+    }
+};
 
-        if (!email || !walletAddress) {
-            res.status(400).json({ message: 'Email and Wallet Address are required' });
+/**
+ * "Complete" means: we have a way to contact them.
+ *
+ * Deliberately NOT about the name — the legal name comes from KYC, where it's read off
+ * a government document, so asking the user to type it would only create a mismatch to
+ * reconcile later. Email is the one thing KYC can't be relied on to supply (verified
+ * Sumsub applicants can have no email at all), so it's the one thing we ask for.
+ */
+const isProfileComplete = (user: any): boolean => Boolean(user.email);
+
+const publicUser = (user: any) => ({
+    UserName: user.UserName,
+    email: user.email,
+    walletAddress: user.walletAddress,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    referralCode: user.referralCode,
+    referralPoints: user.referralPoints || 0,
+    kycStatus: user.kycStatus || 'NONE',
+    profileComplete: isProfileComplete(user),
+});
+
+/**
+ * Wallet-only authentication — the single door into the app.
+ *
+ * The wallet address IS the identity, so there is no separate signup: a SIWE-verified
+ * wallet we've never seen gets a minimal account created on the spot (find-or-create),
+ * and a wallet we know is simply logged back into its existing account with all its
+ * history. Either way the caller signs exactly once and lands in the same place.
+ *
+ * Profile fields (email/name/username) are optional here and only used to seed a NEW
+ * account; they are never trusted to identify an existing one.
+ */
+export const authenticate = async (req: Request, res: Response) => {
+    try {
+        const { walletAddress, message, signature, UserName, firstName, lastName, referralCode } = req.body;
+
+        const address = normalizeAddress(walletAddress);
+        if (!address) {
+            res.status(400).json({ message: 'A valid walletAddress is required' });
             return;
         }
 
-        // F-07: prove wallet ownership before creating the account
-        const { message, signature } = req.body;
-        const ownsWallet = await verifyWalletOwnership(walletAddress, message, signature);
+        const ownsWallet = await verifyWalletOwnership(address, message, signature);
         if (!ownsWallet) {
             res.status(401).json({ message: 'Wallet ownership verification failed' });
             return;
         }
 
-        const existingUser = await User.findOne({ $or: [{ walletAddress }, { email }] });
-        if (existingUser) {
-            if (existingUser.isDeleted) {
-                res.status(400).json({ message: 'This account was previously deleted. Please contact support.' });
+        // ── Existing wallet → log in ────────────────────────────────────────────
+        const existing = await User.findOne({ walletAddress: address });
+        if (existing) {
+            if (existing.isDeleted) {
+                res.status(403).json({ message: 'This account has been deleted.' });
                 return;
             }
-            res.status(400).json({ message: 'User with this wallet address or email already exists' });
+
+            await startSession(res, existing._id.toString());
+            res.status(200).json({ message: 'Login successful', created: false, user: publicUser(existing) });
             return;
         }
 
-        let hashedPassword;
-        if (password) {
-            const salt = await bcrypt.genSalt(10);
-            hashedPassword = await bcrypt.hash(password, salt);
-        }
+        // ── New wallet → create a minimal account, then log in ──────────────────
+        // Email is best-effort profile data (thirdweb gives us one for social logins).
+        // If another wallet already claims it, drop it rather than block the signup —
+        // the same person may hold both an in-app wallet and MetaMask.
+        let email: string | undefined = typeof req.body.email === 'string'
+            ? req.body.email.trim().toLowerCase()
+            : undefined;
+        if (email && (await User.findOne({ email }))) email = undefined;
 
-        // Generate Unique Referral Code
-        let newReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        let codeExists = await User.findOne({ referralCode: newReferralCode });
-        while (codeExists) {
-            newReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-            codeExists = await User.findOne({ referralCode: newReferralCode });
-        }
-
-        // Handle Referred By
-        let referredByWallet = null;
-        if (referralCode) {
-            const referrer = await User.findOne({ referralCode });
-            if (referrer) {
-                referredByWallet = referrer.walletAddress;
-            }
-        }
+        const referrer = referralCode ? await User.findOne({ referralCode }) : null;
 
         const newUser = new User({
+            walletAddress: address,
+            email: email || undefined,
             UserName,
-            email,
-            walletAddress,
             firstName,
             lastName,
-            password: hashedPassword,
-            referralCode: newReferralCode,
-            referredBy: referredByWallet,
-            referralPoints: 0
+            referralCode: await generateReferralCode(),
+            referredBy: referrer ? referrer.walletAddress : null,
+            referralPoints: 0,
         });
 
         await newUser.save();
-
-        // F-06: start a rotating session (access + refresh + csrf cookies)
         await startSession(res, newUser._id.toString());
 
-        res.status(201).json({
-            message: 'User registered successfully',
-            user: {
-                UserName: newUser.UserName,
-                email: newUser.email,
-                walletAddress: newUser.walletAddress,
-                firstName: newUser.firstName,
-                lastName: newUser.lastName,
-                referralCode: newUser.referralCode,
-                referralPoints: newUser.referralPoints || 0
-            }
-        });
+        res.status(201).json({ message: 'Account created', created: true, user: publicUser(newUser) });
     } catch (error) {
-        console.error('Registration error:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-
-    console.log("User registered successfully");
-};
-
-export const login = async (req: Request, res: Response) => {
-    try {
-        const { walletAddress, email, password } = req.body;
-
-        // 1. Wallet Login Flow (Primary)
-        if (walletAddress) {
-            // F-07: require a SIWE signature proving wallet control
-            const { message, signature } = req.body;
-            const ownsWallet = await verifyWalletOwnership(walletAddress, message, signature);
-            if (!ownsWallet) {
-                res.status(401).json({ message: 'Wallet ownership verification failed' });
-                return;
-            }
-
-            const user = await User.findOne({ walletAddress });
-            if (!user) {
-                res.status(404).json({ message: 'User not found. Please sign up first.' });
-                return;
-            }
-
-            if (user.isDeleted) {
-                res.status(403).json({ message: 'This account has been deleted.' });
-                return;
-            }
-
-            await startSession(res, user._id.toString());
-
-            res.status(200).json({
-                message: 'Login successful',
-                user: {
-                    UserName: user.UserName,
-                    email: user.email,
-                    walletAddress: user.walletAddress,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    referralCode: user.referralCode,
-                    referralPoints: user.referralPoints || 0
-                }
-            });
-            return;
-        }
-
-        // 2. Email + Password Login Flow
-        if (email && password) {
-            const user = await User.findOne({ email });
-            if (!user) {
-                res.status(400).json({ message: 'Invalid email or password' });
-                return;
-            }
-
-            if (user.isDeleted) {
-                res.status(403).json({ message: 'This account has been deleted.' });
-                return;
-            }
-
-            if (!user.password) {
-                res.status(400).json({ message: 'This account was created with a wallet. Please login with wallet.' });
-                return;
-            }
-
-            const isMatch = await bcrypt.compare(password, user.password);
-            if (!isMatch) {
-                res.status(400).json({ message: 'Invalid email or password' });
-                return;
-            }
-
-            await startSession(res, user._id.toString());
-
-            res.status(200).json({
-                message: 'Login successful',
-                user: {
-                    UserName: user.UserName,
-                    email: user.email,
-                    walletAddress: user.walletAddress,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    referralCode: user.referralCode,
-                    referralPoints: user.referralPoints || 0
-                }
-            });
-            return;
-        }
-
-        res.status(400).json({ message: 'Wallet Address OR Email/Password required for login' });
-
-    } catch (error) {
-        console.error('Login error:', error);
+        console.error('Authentication error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -304,20 +226,71 @@ export const getUserProfile = async (req: any, res: Response) => {
             kycStatus: user.kycStatus || 'NONE',
             kycRejectionReasons: user.kycRejectionReasons || [],
             kycComment: user.kycComment || '',
-            kycIsFinal: user.kycIsFinal || false
+            kycIsFinal: user.kycIsFinal || false,
+            // drives the one-time "add your email" prompt and the profile form's locking
+            profileComplete: isProfileComplete(user),
+            nameLocked: user.kycStatus === 'VERIFIED'
         });
     } else {
         res.status(404).json({ message: 'User not found' });
     }
 };
 
+// Deliberately permissive: real addresses are validated by delivery, not by regex.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const updateUserProfile = async (req: any, res: Response) => {
     const user = req.user;
+    if (!user) {
+        res.status(404).json({ message: 'User not found' });
+        return;
+    }
 
-    if (user) {
-        user.UserName = req.body.UserName || user.UserName;
-        user.firstName = req.body.firstName || user.firstName;
-        user.lastName = req.body.lastName || user.lastName;
+    try {
+        const { UserName, firstName, lastName, email } = req.body;
+
+        // Once KYC has passed, the name on file is the one Sumsub read off a government
+        // document. Letting it be edited afterwards would leave our records disagreeing
+        // with the verified identity, so it's frozen until re-verification.
+        const nameIsLocked = user.kycStatus === 'VERIFIED';
+        const wantsNameChange =
+            (firstName !== undefined && firstName !== user.firstName) ||
+            (lastName !== undefined && lastName !== user.lastName);
+
+        if (nameIsLocked && wantsNameChange) {
+            res.status(403).json({
+                message: 'Your name is verified by KYC and can no longer be changed.',
+                code: 'NAME_LOCKED_BY_KYC',
+            });
+            return;
+        }
+
+        if (email !== undefined) {
+            const next = String(email).trim().toLowerCase();
+            if (!EMAIL_RE.test(next)) {
+                res.status(400).json({ message: 'Please enter a valid email address.' });
+                return;
+            }
+            if (next !== user.email) {
+                // email is unique+sparse; check first so we can answer clearly instead of
+                // surfacing a duplicate-key error.
+                const taken = await User.findOne({ email: next, _id: { $ne: user._id } });
+                if (taken) {
+                    res.status(409).json({
+                        message: 'That email is already linked to another account.',
+                        code: 'EMAIL_TAKEN',
+                    });
+                    return;
+                }
+                user.email = next;
+            }
+        }
+
+        if (UserName !== undefined) user.UserName = UserName;
+        if (!nameIsLocked) {
+            if (firstName !== undefined) user.firstName = firstName;
+            if (lastName !== undefined) user.lastName = lastName;
+        }
 
         const updatedUser = await user.save();
 
@@ -331,10 +304,14 @@ export const updateUserProfile = async (req: any, res: Response) => {
             email: updatedUser.email,
             walletAddress: updatedUser.walletAddress,
             firstName: updatedUser.firstName,
-            lastName: updatedUser.lastName
+            lastName: updatedUser.lastName,
+            kycStatus: updatedUser.kycStatus || 'NONE',
+            nameLocked: updatedUser.kycStatus === 'VERIFIED',
+            profileComplete: isProfileComplete(updatedUser),
         });
-    } else {
-        res.status(404).json({ message: 'User not found' });
+    } catch (error) {
+        console.error('updateUserProfile error:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
 };
 

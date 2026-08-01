@@ -1,8 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import {
-    register,
-    login,
+    authenticate,
     logout,
     logoutAll,
     refresh,
@@ -23,8 +22,11 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHea
 const refreshLimiter = rateLimit({ windowMs: 5 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
 
 router.post('/nonce', getNonce); // F-07: SIWE nonce (no session yet → CSRF-exempt)
-router.post('/signup', authLimiter, register); // no session yet → CSRF-exempt
-router.post('/signin', authLimiter, login); // no session yet → CSRF-exempt
+// Single wallet-only door: find-or-create. No session yet → CSRF-exempt.
+router.post('/auth', authLimiter, authenticate);
+// Deprecated aliases kept so already-loaded clients keep working during rollout; remove after cutover.
+router.post('/signup', authLimiter, authenticate);
+router.post('/signin', authLimiter, authenticate);
 router.post('/refresh', refreshLimiter, csrfProtection, refresh);
 router.post('/logout', csrfProtection, logout);
 router.post('/logout-all', protect, csrfProtection, logoutAll);

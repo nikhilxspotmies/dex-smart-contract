@@ -41,6 +41,12 @@ contract Market is ReentrancyGuard, Ownable {
     uint256 public oiLong;
     uint256 public oiShort;
 
+    /// @notice Sum of collateral across all open positions, in quote units.
+    /// The Vault reads this to keep trader money out of LP share pricing - without it
+    /// LPs redeem against collateral they do not own. Must be kept in lockstep with
+    /// every write to Position.collateral below.
+    uint256 public totalCollateral;
+
     // Aggregate average entry prices (1e18) for solvency estimation
     uint256 public avgEntryLongPrice;
     uint256 public avgEntryShortPrice;
@@ -143,6 +149,10 @@ contract Market is ReentrancyGuard, Ownable {
         bool isLong,
         uint256 price // 1e18
     ) external nonReentrant onlyPM {
+        // A zero-size increase would mint a position that decreasePosition can never
+        // close (it requires p.size > 0), stranding the collateral inside
+        // totalCollateral and reserving it away from LPs forever.
+        require(sizeDelta > 0, "size=0");
         _updateFunding(price);
 
         Position storage p;
@@ -168,10 +178,14 @@ contract Market is ReentrancyGuard, Ownable {
             // H5: settle accrued funding before resetting snapshot (else a dust-add wipes it).
             int256 accruedFunding = _fundingPnl(p, p.size, isLong);
             if (accruedFunding >= 0) {
-                p.collateral += _usdToUsdc(uint256(accruedFunding));
+                uint256 credit = _usdToUsdc(uint256(accruedFunding));
+                p.collateral += credit;
+                totalCollateral += credit;
             } else {
                 uint256 owedUsdc = _usdToUsdc(uint256(-accruedFunding));
-                p.collateral = owedUsdc >= p.collateral ? 0 : p.collateral - owedUsdc;
+                uint256 debit = owedUsdc >= p.collateral ? p.collateral : owedUsdc;
+                p.collateral -= debit;
+                totalCollateral -= debit;
             }
 
             // Update weighted average entry price
@@ -186,7 +200,10 @@ contract Market is ReentrancyGuard, Ownable {
         require(collateralDelta > feeUsdc, "collat<fee");
         uint256 collateralNet = collateralDelta - feeUsdc;
 
+        // The Router already moved collateralDelta into the vault; feeUsdc stays there
+        // as LP revenue and only collateralNet is owed back to the trader.
         p.collateral += collateralNet;
+        totalCollateral += collateralNet;
 
         // OI caps and accurate weighted-entry tracking (H5)
         if (isLong) {
@@ -243,6 +260,7 @@ contract Market is ReentrancyGuard, Ownable {
         // Update position
         p.size -= sizeDelta;
         if (p.size == 0) {
+            totalCollateral -= p.collateral;
             p.collateral = 0;
             p.entryPrice = 0;
             // Remove position ID from user's list (mark as deleted by setting to 0)
@@ -256,6 +274,7 @@ contract Market is ReentrancyGuard, Ownable {
             }
         } else {
             p.collateral -= collateralPortion;
+            totalCollateral -= collateralPortion;
         }
 
         uint256 userReturnUsdc = 0;
@@ -326,6 +345,10 @@ contract Market is ReentrancyGuard, Ownable {
         require(collateralPlusPnl < mmUsdc, "healthy");
 
         emit Liquidated(user, positionId, p.isLong, p.size, p.collateral, price, pnl);
+
+        // Nothing is paid out on liquidation - the seized collateral becomes LP revenue,
+        // so it stops being reserved.
+        totalCollateral -= p.collateral;
 
         // adjust OI and weighted-entry sums (H5)
         if (p.isLong) {

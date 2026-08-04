@@ -77,6 +77,21 @@ contract DeployNewPerpBSC is Script {
         router.setPositionManager(address(positionManager));
         console.log("Linked Router and Position Manager");
 
+        // 5b. Register the keeper(s) allowed to execute requests and liquidations.
+        // Execution is deliberately NOT permissionless: combined with
+        // minExecutionDelayBlocks this is what stops a trader self-executing at a
+        // price they can already see. Nothing executes until a keeper is set here.
+        address keeper = vm.envOr("PERP_KEEPER_ADDRESS", address(0));
+        require(keeper != address(0), "PERP_KEEPER_ADDRESS required");
+        positionManager.setKeeper(keeper, true);
+        console.log("Keeper registered:", keeper);
+
+        address liquidationKeeper = vm.envOr("PERP_LIQUIDATION_KEEPER_ADDRESS", address(0));
+        if (liquidationKeeper != address(0) && liquidationKeeper != keeper) {
+            positionManager.setKeeper(liquidationKeeper, true);
+            console.log("Liquidation keeper registered:", liquidationKeeper);
+        }
+
         // 6. Market Factory
         MarketFactory factory = new MarketFactory();
         console.log("MarketFactory:", address(factory));
@@ -101,6 +116,8 @@ contract DeployNewPerpBSC is Script {
         console.log("VITE_PERP_VAULT_ADDRESS=", vault);
         console.log("VITE_PERP_POSITION_MANAGER_ADDRESS=", address(positionManager));
         console.log("VITE_USDC_ADDRESS=", usdcAddress);
+        console.log("Execution delay (blocks):", positionManager.minExecutionDelayBlocks());
+        console.log("Keeper (must match backend PRIVATE_KEY wallet):", keeper);
     }
 
     /// @dev BSC mainnet Chainlink <BASE>/USD aggregators; PRICE_FEED_ADDRESS overrides.

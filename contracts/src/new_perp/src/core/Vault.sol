@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface IMarket {
     function unrealizedProfits() external view returns (uint256);
+    function totalCollateral() external view returns (uint256);
 }
 
 /// @notice LP vault for a single isolated market. Holds USDC liquidity and mints LP shares.
@@ -46,9 +47,24 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
         market = _market;
     }
 
-    /// @notice total USDC held by vault
+    /// @notice Trader collateral the vault is merely custodying for open positions.
+    /// This is NOT LP equity - it is owed back to traders when they close.
+    function reservedAssets() public view returns (uint256) {
+        address _market = market;
+        if (_market == address(0)) return 0;
+        return IMarket(_market).totalCollateral();
+    }
+
+    /// @notice LP-owned assets: the raw balance minus trader collateral.
+    /// @dev Trader collateral is transferred into this vault by the Router on every
+    /// position increase, so the raw balance mixes two owners' money. Pricing LP
+    /// shares against the raw balance let LPs redeem trader collateral and left
+    /// traders unable to close. Saturates at 0 rather than reverting so an
+    /// undercollateralised vault degrades instead of bricking.
     function totalAssets() public view returns (uint256) {
-        return usdc.balanceOf(address(this));
+        uint256 bal = usdc.balanceOf(address(this));
+        uint256 reserved = reservedAssets();
+        return bal > reserved ? bal - reserved : 0;
     }
 
     /// @notice deposits USDC and mints LP shares proportionally.
@@ -60,7 +76,7 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 shares;
-        if (_totalSupply == 0 || _totalAssets == 0) {
+        if (_totalSupply == 0) {
             uint256 minted = amount * quoteScale; // scale to 18-dec LP basis
             // H2: lock MINIMUM_LIQUIDITY dead shares on first deposit so totalSupply can never
             // be driven to ~1, which is what makes the donation/inflation attack profitable.
@@ -68,6 +84,10 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
             _mint(DEAD, MINIMUM_LIQUIDITY);
             shares = minted - MINIMUM_LIQUIDITY;
         } else {
+            // Shares outstanding but no LP equity left means the vault is insolvent.
+            // Re-running the seed path here would mint a second batch of dead shares
+            // and price the deposit at 1:1, so refuse instead.
+            require(_totalAssets > 0, "vault insolvent");
             shares = (amount * _totalSupply) / _totalAssets;
         }
         require(shares > 0, "zero shares");
@@ -83,9 +103,11 @@ contract Vault is ERC20, ReentrancyGuard, Ownable {
         uint256 assets = (shares * totalAssets()) / _totalSupply;
         _burn(msg.sender, shares);
 
-        uint256 unrealized = IMarket(market).unrealizedProfits();
+        // Everything the vault owes that is not LP equity: trader collateral held for
+        // open positions, plus the profits those positions would realise right now.
+        uint256 reserved = reservedAssets() + IMarket(market).unrealizedProfits();
         uint256 bal = usdc.balanceOf(address(this));
-        if (assets + unrealized > bal) revert InsufficientLiquidity();
+        if (assets + reserved > bal) revert InsufficientLiquidity();
 
         usdc.safeTransfer(to, assets);
     }

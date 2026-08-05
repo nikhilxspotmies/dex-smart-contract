@@ -47,6 +47,8 @@ contract SecurityFixesTest is Test {
 
         router.setPositionManager(address(pm));
         market.setPositionManager(address(pm));
+        pm.setKeeper(address(this), true);
+        pm.setKeeper(keeper, true);
 
         vm.prank(lp);
         usdc.approve(address(vault), type(uint256).max);
@@ -66,6 +68,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), 0, sizeUsd, collateral, true, acceptable, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
         uint256[] memory ids = market.getUserPositionIds(trader);
@@ -77,6 +80,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), 0, sizeUsd, collateral, false, acceptable, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
         uint256[] memory ids = market.getUserPositionIds(trader);
@@ -91,6 +95,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), 0, 5_000 * WAD, 100 * 1e6, true, 2_100 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert(bytes("exceeds max leverage"));
         pm.executeIncrease(reqId);
@@ -112,6 +117,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), posId, 10_000 * WAD, 20 * 1e6, true, 2_100 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert(bytes("exceeds max leverage"));
         pm.executeIncrease(reqId);
@@ -143,6 +149,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createDecreaseRequest(
             address(market), pos1, 1_000 * WAD, true, 2_900 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(reqId);
 
@@ -168,6 +175,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), posId, 1 * WAD, 2_000, true, 2_100 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -185,6 +193,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), 0, 5_000 * WAD, 100 * 1e6, false, 1_900 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert(bytes("exceeds max leverage"));
         pm.executeIncrease(reqId);
@@ -227,6 +236,7 @@ contract SecurityFixesTest is Test {
         uint256 reqId = router.createIncreaseRequest(
             address(market), longPos, 1 * WAD, 2 * 1e6, true, 2_100 * 1e18, 1 * 1e6
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId); // must NOT revert/underflow
 
@@ -255,4 +265,18 @@ contract SecurityFixesTest is Test {
         assertEq(market.avgEntryLongPrice(), 2_000 * WAD, "avg entry recomputed after liquidation");
         assertEq(market.getPosition(pos1).size, 2_000 * WAD, "pos1 intact");
     }
+
+
+
+    // Execution is gated behind minExecutionDelayBlocks, so a request can never be
+    // executed in the block it was created in. Uses a monotonic counter rather than
+    // block.number + 1, which does not reliably advance across a single test body.
+    uint256 private _blk;
+
+    function _advanceBlock() internal {
+        if (_blk == 0) _blk = block.number;
+        _blk += 1;
+        vm.roll(_blk);
+    }
+
 }

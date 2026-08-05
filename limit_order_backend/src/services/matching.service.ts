@@ -10,7 +10,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { localhost, mainnet, bsc } from 'viem/chains';
 import { LimitOrderProtocolABI } from '../abis/LimitOrderProtocol.js';
-import { TOKENS } from '../utils/tokenConfig.js';
+import { findToken } from '../utils/tokenConfig.js';
 import { processFirstTradeReferral } from './referral.service.js';
 import { prisma, OrderStatus } from '../controllers/orders.controller.js';
 import type { Order } from '@prisma/client';
@@ -398,8 +398,8 @@ export class MatchingEngine {
             console.log(`   Ask Fill: ${ask.filledMakingAmount}/${ask.makingAmount}`);
 
             // ... price update logic (keeping it as is)
-            const askToken = TOKENS.find(t => t.address.toLowerCase() === ask.makerAsset.toLowerCase());
-            const bidToken = TOKENS.find(t => t.address.toLowerCase() === bid.makerAsset.toLowerCase());
+            const askToken = findToken(ask.makerAsset);
+            const bidToken = findToken(bid.makerAsset);
 
             // ... (keeping existing code)
             const askSymbol = askToken ? askToken.symbol : ask.makerAsset;

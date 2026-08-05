@@ -1,1 +1,19 @@
 .env
+.env.production
+.gitignore
+
+# Env backups written by the deploy tooling — these hold live mainnet keys.
+# Pattern has no slash, so it matches at every directory depth.
+.env.bak*
+.env.*.bak
+.env.testnet
+
+# Local operator scripts with hardcoded signing keys. Keep them out of history;
+# they are one-off maintenance tools, not part of the deployable system.
+copy_trading_engine/*.mjs
+
+# 13 MB runtime log; was tracked by mistake.
+limit_order_backend/engine.log
+
+.DS_Store
+

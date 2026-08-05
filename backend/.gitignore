@@ -24,3 +24,6 @@ logs
 
 # Other
 .DS_Store
+.env.production
+.gitignore
+.env.testnet

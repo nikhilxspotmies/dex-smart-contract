@@ -26,7 +26,7 @@ const ERC20_ABI = [
 // Whitelist from contracts.ts (as observed)
 const TOKENS = [
     { symbol: "USDC", address: process.env.TOKEN_A_ADDRESS || "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18 },
-    { symbol: "ETH (TokenB)", address: process.env.TOKEN_B_ADDRESS || "0xa2E3356610840701BDf5611a53974510Ae27E2e1", decimals: 18 } // Assuming 18
+    { symbol: "ETH (TokenB)", address: process.env.TOKEN_B_ADDRESS || "0x2170Ed0880ac9A755fd29B2688956BD959F933F8", decimals: 18 } // Assuming 18
 ];
 
 async function main() {

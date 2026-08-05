@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "npx nodemon --exec \"node --loader ts-node/esm\" src/index.ts",
+    "dev": "npx nodemon --exec \"npx tsx\" src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -29,7 +29,7 @@
     "siwe": "^3.0.0",
     "socket.io": "^4.8.1",
     "sumsub-node-sdk": "^2.0.0",
-    "thirdweb": "^5.116.1",
+    "thirdweb": "^5.120.1",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

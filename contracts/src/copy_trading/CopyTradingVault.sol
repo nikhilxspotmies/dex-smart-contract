@@ -22,35 +22,67 @@ interface IDexRouter {
     ) external returns (uint[] memory amounts);
 }
 
+// H3: factory allowlist + price-feed interfaces.
+interface ICopyTradingFactory {
+    function tokenFeed(address token) external view returns (address);
+    function maxSlippageBps() external view returns (uint256);
+}
+
+interface IAggregatorV3 {
+    function latestRoundData()
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+}
+
+interface IERC20Decimals {
+    function decimals() external view returns (uint8);
+}
+
 contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
     using SafeERC20 for IERC20;
 
     // --- Structs ---
-    struct SwapData { 
-        address tokenIn; 
-        address tokenOut; 
-        uint256 amountIn; 
-        uint256 minAmountOut; 
-        bytes data; 
+    struct SwapData {
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint256 minAmountOut;
+        bytes data;
     }
 
     // --- State Variables ---
-    
+
     // Configuration
     address public executor;
     address public swapRouter;
     address public targetWhale;
-    
+    // H3: factory holding the allowlist; set at init.
+    address public factory;
+    uint256 private constant BPS_DIV = 10_000;
+    uint256 private constant PRICE_MAX_STALE = 1 days;
+
     // --- Events ---
     event Deposited(address indexed token, uint256 amount);
     event Withdrawn(address indexed token, uint256 amount);
-    event Swapped(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+    event Swapped(
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut
+    );
     event TargetWhaleUpdated(address indexed newWhale);
     event ExecutorUpdated(address newExecutor);
     event SwapRouterUpdated(address newRouter);
 
     // --- Constructor / Initializer ---
-    
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() Ownable(msg.sender) {
         _disableInitializers();
@@ -69,12 +101,14 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
     ) external initializer {
         // Initialize Ownable manually since we can't call super constructor in initialize
         _transferOwnership(_owner);
-        
+
         require(_executor != address(0), "Invalid executor");
         require(_swapRouter != address(0), "Invalid router");
 
         executor = _executor;
         swapRouter = _swapRouter;
+        // H3: initialize() is called by the factory, so msg.sender is it.
+        factory = msg.sender;
     }
 
     // --- Modifiers ---
@@ -103,7 +137,7 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         SwapData[] calldata immediateSwaps
     ) external nonReentrant {
         require(amountIn > 0, "Amount must be > 0");
-        
+
         // 1. Pull tokens from user (if this function is called)
         // Note: If user sent tokens directly, they skip this and just call manual trade or wait for executor.
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
@@ -119,9 +153,12 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
      * @notice Withdraw funds from the vault.
      * @dev Only the owner (User) can call this.
      */
-    function withdraw(address token, uint256 amount) external nonReentrant onlyOwner {
+    function withdraw(
+        address token,
+        uint256 amount
+    ) external nonReentrant onlyOwner {
         require(amount > 0, "Amount must be > 0");
-        
+
         uint256 currentBalance = IERC20(token).balanceOf(address(this));
         require(currentBalance >= amount, "Insufficient balance");
 
@@ -135,7 +172,7 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
     function withdrawAll(address token) external nonReentrant onlyOwner {
         uint256 balance = IERC20(token).balanceOf(address(this));
         require(balance > 0, "No funds to withdraw");
-        
+
         IERC20(token).safeTransfer(msg.sender, balance);
         emit Withdrawn(token, balance);
     }
@@ -145,31 +182,34 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
      * @param tokens Array of token addresses
      * @param amounts Array of amounts to withdraw (use type(uint256).max for 'All')
      */
-    function withdrawBatch(address[] calldata tokens, uint256[] calldata amounts) external nonReentrant onlyOwner {
+    function withdrawBatch(
+        address[] calldata tokens,
+        uint256[] calldata amounts
+    ) external nonReentrant onlyOwner {
         require(tokens.length == amounts.length, "Length mismatch");
-        
+
         for (uint256 i = 0; i < tokens.length; i++) {
             address token = tokens[i];
             uint256 amount = amounts[i];
-            
+
             // Check if user requested "All" (using a high number convention or just checking balance)
             // For strictness, we just use the amount provided.
-            
-            if (amount > 0) {
-                 uint256 currentBalance = IERC20(token).balanceOf(address(this));
-                 // If sending type(uint256).max, just withdraw everything? 
-                 // The user plan said "explicit amounts", but for "Withdraw Funds" button ease, 
-                 // we might pass exact balances from frontend. 
-                 // Let's safe-guard: limit to balance.
-                 
-                 if (amount > currentBalance) {
-                     amount = currentBalance;
-                 }
 
-                 if (amount > 0) {
-                     IERC20(token).safeTransfer(msg.sender, amount);
-                     emit Withdrawn(token, amount);
-                 }
+            if (amount > 0) {
+                uint256 currentBalance = IERC20(token).balanceOf(address(this));
+                // If sending type(uint256).max, just withdraw everything?
+                // The user plan said "explicit amounts", but for "Withdraw Funds" button ease,
+                // we might pass exact balances from frontend.
+                // Let's safe-guard: limit to balance.
+
+                if (amount > currentBalance) {
+                    amount = currentBalance;
+                }
+
+                if (amount > 0) {
+                    IERC20(token).safeTransfer(msg.sender, amount);
+                    emit Withdrawn(token, amount);
+                }
             }
         }
     }
@@ -195,15 +235,32 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
             // 1. Validation
             // We use physical balance check instead of internal ledger
             uint256 balanceIn = IERC20(swap.tokenIn).balanceOf(address(this));
-            require(balanceIn >= swap.amountIn, "Insufficient balance for swap");
+            require(
+                balanceIn >= swap.amountIn,
+                "Insufficient balance for swap"
+            );
 
             // 2. Execute Swap on Router
-            uint256 netAmountReceived = _performSwapCall(swap.tokenIn, swap.tokenOut, swap.amountIn, swap.minAmountOut, swap.data);
+            uint256 netAmountReceived = _performSwapCall(
+                swap.tokenIn,
+                swap.tokenOut,
+                swap.amountIn,
+                swap.minAmountOut,
+                swap.data
+            );
 
             // 3. Slippage Check (Redundant if Router checks it, but good for double safety)
-            require(netAmountReceived >= swap.minAmountOut, "Slippage tolerance exceeded");
+            require(
+                netAmountReceived >= swap.minAmountOut,
+                "Slippage tolerance exceeded"
+            );
 
-            emit Swapped(swap.tokenIn, swap.tokenOut, swap.amountIn, netAmountReceived);
+            emit Swapped(
+                swap.tokenIn,
+                swap.tokenOut,
+                swap.amountIn,
+                netAmountReceived
+            );
         }
     }
 
@@ -220,6 +277,17 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         require(path[0] == tokenIn, "Path start mismatch");
         require(path[path.length - 1] == tokenOut, "Path end mismatch");
 
+        // H3: every path hop must be allowlisted (blocks routing into junk tokens).
+        for (uint256 i = 0; i < path.length; i++) {
+            require(
+                ICopyTradingFactory(factory).tokenFeed(path[i]) != address(0),
+                "token not allowed"
+            );
+        }
+
+        // H3: oracle-derived floor (don't trust the executor's minAmountOut).
+        uint256 oracleMinOut = _oracleMinOut(tokenIn, tokenOut, amountIn);
+
         // Approve Router
         IERC20(tokenIn).forceApprove(swapRouter, amountIn);
 
@@ -229,12 +297,12 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         // IDexRouter interface defined locally or cast to generic interface with signature
         // We use low-level call or cast to interface. User requested "specifically call the swapExactTokensForTokens function".
         // Let's cast msg.sender (which is Router in the context of the OTHER file, but here swapRouter is the address)
-        
-        // Define interface signature inline or assume it is available. 
-        // To be safe and clean, I will cast to an interface I define at top of file, 
+
+        // Define interface signature inline or assume it is available.
+        // To be safe and clean, I will cast to an interface I define at top of file,
         // OR just use abi.encodeWithSelector since I am already editing the file.
         // But user explicitly said "specifically call...".
-        
+
         // Let's modify the file to include the interface at the top first, or validly usage here.
         // For now, I will use the interface call.
         IDexRouter(swapRouter).swapExactTokensForTokens(
@@ -246,11 +314,48 @@ contract CopyTradingVault is Ownable, ReentrancyGuard, Initializable {
         );
 
         uint256 balanceAfter = IERC20(tokenOut).balanceOf(address(this));
-        
+
         // Reset approval
         IERC20(tokenIn).forceApprove(swapRouter, 0);
 
-        return balanceAfter - balanceBefore;
+        uint256 received = balanceAfter - balanceBefore;
+
+        // H3: enforce the oracle floor.
+        require(received >= oracleMinOut, "below oracle min out");
+
+        return received;
+    }
+
+    // H3: min-out = amountIn*priceIn*10^decOut / (10^decIn*priceOut), less max slippage.
+    function _oracleMinOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) internal view returns (uint256) {
+        uint256 priceIn = _feedPrice(
+            ICopyTradingFactory(factory).tokenFeed(tokenIn)
+        );
+        uint256 priceOut = _feedPrice(
+            ICopyTradingFactory(factory).tokenFeed(tokenOut)
+        );
+
+        uint256 decIn = IERC20Decimals(tokenIn).decimals();
+        uint256 decOut = IERC20Decimals(tokenOut).decimals();
+
+        uint256 expectedOut = (amountIn * priceIn * (10 ** decOut)) /
+            ((10 ** decIn) * priceOut);
+
+        uint256 bps = ICopyTradingFactory(factory).maxSlippageBps();
+        return (expectedOut * (BPS_DIV - bps)) / BPS_DIV;
+    }
+
+    function _feedPrice(address feed) internal view returns (uint256) {
+        require(feed != address(0), "no feed");
+        (, int256 answer, , uint256 updatedAt, ) = IAggregatorV3(feed)
+            .latestRoundData();
+        require(answer > 0, "bad price");
+        require(block.timestamp - updatedAt <= PRICE_MAX_STALE, "stale price");
+        return uint256(answer);
     }
 
     // --- Admin Configuration ---

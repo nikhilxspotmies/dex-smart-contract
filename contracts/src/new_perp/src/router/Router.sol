@@ -20,6 +20,7 @@ contract Router is Ownable {
         uint256 executionFee; // in USDC (6d)
         bool isIncrease;
         bool exists;
+        uint256 blockNumber; // block the request was created in; PositionManager enforces a delay against it
     }
 
     IERC20 public immutable quote; // USDC
@@ -64,7 +65,8 @@ contract Router is Ownable {
             acceptablePrice: acceptablePrice,
             executionFee: executionFee,
             isIncrease: true,
-            exists: true
+            exists: true,
+            blockNumber: block.number
         });
 
         uint256 total = collateralDelta + executionFee;
@@ -92,7 +94,8 @@ contract Router is Ownable {
             acceptablePrice: acceptablePrice,
             executionFee: executionFee,
             isIncrease: false,
-            exists: true
+            exists: true,
+            blockNumber: block.number
         });
         if (executionFee > 0) {
             quote.safeTransferFrom(msg.sender, address(this), executionFee);

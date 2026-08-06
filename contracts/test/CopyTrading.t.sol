@@ -51,6 +51,15 @@ contract MockSwapRouter {
     }
 }
 
+// Minimal Chainlink-style feed for H3 allowlist tests (8-dec answer, always fresh).
+contract MockPriceFeed {
+    int256 public answer;
+    constructor(int256 _answer) { answer = _answer; }
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
+        return (0, answer, 0, block.timestamp, 0);
+    }
+}
+
 // --- Main Test Suite ---
 
 contract CopyTradingTest is Test {
@@ -86,6 +95,10 @@ contract CopyTradingTest is Test {
             address(router),
             owner
         );
+
+        // H3: allowlist both tokens with equal-price feeds ($1 each) to match the mock 1:1 router.
+        factory.setAllowedToken(address(weth), address(new MockPriceFeed(1e8)));
+        factory.setAllowedToken(address(usdc), address(new MockPriceFeed(1e8)));
 
         vm.stopPrank();
 

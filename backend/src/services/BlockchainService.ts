@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import Trade from '../models/Trade.js';
 import Listing from '../models/Listing.js';
 import User from '../models/User.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 // @ts-ignore
 import fs from 'fs';
 import path from 'path';
@@ -225,26 +226,30 @@ class BlockchainService {
                         pricePerToken: Number(price),
                         active: true
                     },
-                    { upsert: true, new: true }
+                    { upsert: true, returnDocument: "after" }
                 );
                 console.log(`Listing ${lId} indexed/updated.`);
 
                 // Referral Logic: Reward referrer if this is the seller's first "sell activity"
                 try {
-                    const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${seller}$`, 'i') } });
-
-                    if (currentUser && !currentUser.hasDoneFirstTrade) {
-                        if (currentUser.referredBy) {
-                            const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
-                            if (referrer) {
-                                referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                                await referrer.save();
-                                console.log(`Referral Reward (P2P Listing): ${referrer.walletAddress} received 100 points for referring ${seller}`);
+                    const sellerAddr = normalizeAddress(seller);
+                    if (sellerAddr) {
+                        const currentUser = await User.findOne({ walletAddress: { $regex: `^${sellerAddr}$`, $options: 'i' } });
+                        if (currentUser && !currentUser.hasDoneFirstTrade) {
+                            if (currentUser.referredBy) {
+                                const refAddr = normalizeAddress(currentUser.referredBy);
+                                if (refAddr) {
+                                    await User.updateOne(
+                                        { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                                        { $inc: { referralPoints: 100 } }
+                                    );
+                                    console.log(`Referral Reward (P2P Listing): received 100 points for referring ${sellerAddr}`);
+                                }
                             }
+                            currentUser.hasDoneFirstTrade = true;
+                            await currentUser.save();
+                            console.log(`User ${sellerAddr} marked as having done first trade (via Listing)`);
                         }
-                        currentUser.hasDoneFirstTrade = true;
-                        await currentUser.save();
-                        console.log(`User ${seller} marked as having done first trade (via Listing)`);
                     }
                 } catch (refError) {
                     console.error("Referral Logic Error (P2P Listing Event):", refError);
@@ -274,7 +279,7 @@ class BlockchainService {
                             pricePerToken: Number(p),
                             status: 'Proposed'
                         },
-                        { upsert: true, new: true }
+                        { upsert: true, returnDocument: "after" }
                     );
                     console.log(`Trade ${pId} created/updated in DB.`);
                 } else {
@@ -326,20 +331,24 @@ class BlockchainService {
 
     private async rewardFirstTrade(walletAddress: string, source: string) {
         try {
-            const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${walletAddress}$`, 'i') } });
+            const addr = normalizeAddress(walletAddress);
+            if (!addr) return;
+            const currentUser = await User.findOne({ walletAddress: { $regex: `^${addr}$`, $options: 'i' } });
 
             if (currentUser && !currentUser.hasDoneFirstTrade) {
                 if (currentUser.referredBy) {
-                    const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
-                    if (referrer) {
-                        referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                        await referrer.save();
-                        console.log(`Referral Reward (${source}): ${referrer.walletAddress} received 100 points for referring ${walletAddress}`);
+                    const refAddr = normalizeAddress(currentUser.referredBy);
+                    if (refAddr) {
+                        await User.updateOne(
+                            { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                            { $inc: { referralPoints: 100 } }
+                        );
+                        console.log(`Referral Reward (${source}): received 100 points for referring ${addr}`);
                     }
                 }
                 currentUser.hasDoneFirstTrade = true;
                 await currentUser.save();
-                console.log(`User ${walletAddress} marked as having done first trade (via ${source})`);
+                console.log(`User ${addr} marked as having done first trade (via ${source})`);
             }
         } catch (error) {
             console.error(`Error in rewardFirstTrade (${source}):`, error);

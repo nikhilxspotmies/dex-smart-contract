@@ -51,8 +51,20 @@ contract BscCompatibilityTest is Test {
         vault.deposit(1000 * 1e18, user);
         vm.stopPrank();
 
-        // On BSC (18 decimals), shares should be 1:1 with amount because quoteScale is 1 (10^(18-18))
-        assertEq(vault.balanceOf(user), 1000 * 1e18, "Vault shares should be 1:1 with amount on BSC");
+        // On BSC (18 decimals) quoteScale is 1 (10^(18-18)), so minted = amount.
+        // H2: the first deposit permanently locks MINIMUM_LIQUIDITY (1e3) dead shares to block
+        // first-depositor inflation, so the depositor receives amount - 1e3.
+        uint256 minimumLiquidity = 1e3;
+        assertEq(
+            vault.balanceOf(user),
+            1000 * 1e18 - minimumLiquidity,
+            "first depositor gets amount minus locked dead shares on BSC"
+        );
+        assertEq(
+            vault.balanceOf(address(0xdead)),
+            minimumLiquidity,
+            "dead shares locked on first deposit"
+        );
     }
 
     function testMarketCollateralScalingBSC() public {

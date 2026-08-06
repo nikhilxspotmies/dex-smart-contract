@@ -34,8 +34,8 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.listen(port, () => {
+app.listen(port, async () => {
     console.log(`Limit Order Backend running on port ${port}`);
-    seedData();
+    await seedData();
     matchingEngine.start();
 });

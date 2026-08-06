@@ -1,69 +1,31 @@
-## Foundry
+# Amerox contracts
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Foundry workspace for the Amerox DEX. Solidity 0.8.20, `via_ir = true`,
+optimizer at 200 runs.
 
-Foundry consists of:
+## What's here
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+| Path | Purpose |
+|---|---|
+| `src/Dex.sol` | AMM — factory, router, pairs |
+| `src/P2PTokenEscrow.sol` | P2P escrow trading; tokens must be whitelisted by the owner |
+| `src/limit_order/` | EIP-712 signed limit orders, matched off-chain |
+| `src/new_perp/` | GMX-V2-style isolated peer-to-pool perpetuals (see its own README) |
+| `src/copy_trading/` | Copy-trading vault factory + per-user vault clones |
 
-## Documentation
-
-https://book.getfoundry.sh/
+`src/CopyTrading.sol`, `src/Counter.sol`, and the `Mock*` contracts are legacy or
+test-only — they are not part of a production deploy.
 
 ## Usage
 
-### Build
-
 ```shell
-$ forge build
+forge build
+forge test
 ```
 
-### Test
+## Deployment
 
-```shell
-$ forge test
-```
+- `CONTRACTS_PROD_DEPLOYMENT.md` — production runbook (BSC mainnet); start here.
+- `README_BSC_DEPLOY.md` — details of the BSC deploy script.
 
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
-
-@Perpetual.sol right now leverage is 10 percent fixed right..but leverage should be choosed by user who wants to trade?right?we should take it from user right?but we should also keeep a check that our platforms accepts this much leverage.only
-also maintanence ratio with leverage should justify when a user is in looses we liquidate his trade accordingly right
+Deployed addresses are recorded under `broadcast/<script>/<chainId>/`.

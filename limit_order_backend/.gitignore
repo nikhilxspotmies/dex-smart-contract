@@ -3,3 +3,6 @@ node_modules
 
 /src/generated/prisma
 dist
+.env.production
+.gitignore
+.env.testnet

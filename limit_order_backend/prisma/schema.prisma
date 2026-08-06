@@ -10,7 +10,15 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime queries go through the transaction-mode pooler (port 6543). It
+  // multiplexes connections but cannot hold prepared statements or advisory
+  // locks, so the URL must carry ?pgbouncer=true.
   url      = env("DATABASE_URL")
+  // Migrations need a real session: DDL plus the advisory lock Prisma takes to
+  // serialise `migrate deploy`. That is the session-mode pooler (port 5432).
+  // Not the `db.<ref>.supabase.co` direct host — it is IPv6-only, and the
+  // server this deploys to is IPv4.
+  directUrl = env("DIRECT_URL")
 }
 
 enum OrderStatus {
@@ -20,18 +28,23 @@ enum OrderStatus {
 }
 
 model Order {
-  orderHash    String      @id
-  makerAsset   String
-  takerAsset   String
-  maker        String
-  makingAmount String
-  takingAmount String
-  salt         String
-  deadline     Int
-  signature    String
-  status       OrderStatus @default(OPEN)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  orderHash          String      @id
+  makerAsset         String
+  takerAsset         String
+  maker              String
+  makingAmount       String
+  takingAmount       String
+  salt               String
+  deadline           Int
+  signature          String
+  status             OrderStatus @default(OPEN)
+  filledMakingAmount String      @default("0")
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([status])
+  @@index([maker])
+  @@index([makerAsset, takerAsset, status])
 }
 
 model LastTradedPrice {
@@ -44,6 +57,9 @@ model PriceHistory {
   id        String   @id @default(uuid())
   key       String
   price     String
+  volume    String   @default("0")
   timestamp Float
   createdAt DateTime @default(now())
+
+  @@index([key, timestamp])
 }

@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import cron from "node-cron";
-import { PRIVATE_KEY, RPC_URL } from "./config/contracts.js";
+import { PRIVATE_KEY, RPC_URL, resolveTokenDecimals } from "./config/contracts.js";
 import { VaultManager } from "./managers/VaultManager.js";
 import { PortfolioAnalyzer } from "./logic/Portfolio.js";
 import { TradeExecutor } from "./logic/Executor.js";
@@ -111,9 +111,16 @@ async function runEngine() {
     }
 }
 
-// Start Cron (Every 30 seconds)
-cron.schedule('*/30 * * * * *', runEngine);
+// Resolve token decimals on-chain, then start the engine.
+async function bootstrap() {
+    await resolveTokenDecimals(provider);
 
-// Immediate Start
-console.log("Copy Trading Engine V2 Initialized.");
-runEngine();
+    // Start Cron (Every 30 seconds)
+    cron.schedule('*/30 * * * * *', runEngine);
+
+    // Immediate Start
+    console.log("Copy Trading Engine V2 Initialized.");
+    runEngine();
+}
+
+bootstrap();

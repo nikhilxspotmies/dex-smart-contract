@@ -2,10 +2,10 @@
 cache/
 out/
 
-# Ignores development broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
+# Forge broadcast artifacts: ~90% raw RLP transaction blobs, and run-latest.json
+# duplicates the timestamped run byte-for-byte. The only durable value is the
+# deployed address per contract, which is recorded in CONTRACTS_PROD_DEPLOYMENT.md.
+/broadcast/
 
 # Docs
 docs/
@@ -14,3 +14,4 @@ docs/
 # .env
 
 node_modules
+.env.testnet

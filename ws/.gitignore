@@ -21,3 +21,4 @@ logs
 
 # Other
 .DS_Store
+.env.testnet

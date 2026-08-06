@@ -16,6 +16,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         uint256 pricePerToken;
         bool active;
         uint256 createdAt;
+        bool cancelled; // L2: set on deliberate delist so a refund can't silently re-activate it
     }
 
     enum PurchaseStatus { Proposed, Locked, Released, Refunded, Cancelled, Disputed }
@@ -94,6 +95,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
 
     function createListing(IERC20 token, uint256 totalAmount, uint256 pricePerToken) external returns (uint256) {
         require(totalAmount > 0, "Amount(qty of token) must be > 0");
+        require(pricePerToken > 0, "Price must be > 0"); // L2: reject zero-price listings
         require(address(token) != address(0), "Invalid token address");
 
         // Whitelist Check
@@ -109,7 +111,8 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
             remaining: totalAmount,
             pricePerToken: pricePerToken,
             active: true,
-            createdAt: block.timestamp
+            createdAt: block.timestamp,
+            cancelled: false
         });
 
         listings.push(l);
@@ -219,7 +222,8 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
         l.token.safeTransfer(l.seller, p.quantity);
 
         l.remaining += p.quantity;
-        l.active = true;
+        // L2: restore availability only if the seller didn't deliberately delist it.
+        l.active = !l.cancelled;
 
         emit PurchaseRefunded(purchaseId, p.listingId, l.seller, p.quantity);
         emit ListingUpdatedRemaining(p.listingId, l.remaining);
@@ -244,6 +248,7 @@ contract P2PTokenEscrows is ReentrancyGuard, Ownable {
     {
         require(listings[listingId].active, "Listing already inactive");
         listings[listingId].active = false;
+        listings[listingId].cancelled = true; // L2: mark as deliberately delisted
         emit ListingCancelled(listingId);
     }
 

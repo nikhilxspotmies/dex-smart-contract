@@ -3,6 +3,7 @@ import BlockchainService from '../services/BlockchainService.js';
 import Trade from '../models/Trade.js';
 import User from '../models/User.js';
 import Complaint from '../models/Complaint.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 
 
 // problem here uniquley need to verify the crypto seller that request should not able to send by imposter..
@@ -35,14 +36,19 @@ export const createTrade = async (req: Request, res: Response): Promise<void> =>
         // Referral Logic: Reward referrer if this is the first trade for buyer or seller
         const processReferral = async (address: string, role: string) => {
             try {
-                const user = await User.findOne({ walletAddress: { $regex: new RegExp(`^${address}$`, 'i') } });
+                // H1: validate address format before use in query (prevents regex injection/ReDoS)
+                const addr = normalizeAddress(address);
+                if (!addr) return;
+                const user = await User.findOne({ walletAddress: { $regex: `^${addr}$`, $options: 'i' } });
                 if (user && !user.hasDoneFirstTrade) {
                     if (user.referredBy) {
-                        const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${user.referredBy}$`, 'i') } });
-                        if (referrer) {
-                            referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                            await referrer.save();
-                            console.log(`Referral Reward (P2P ${role}): ${referrer.walletAddress} received 100 points for referring ${address}`);
+                        const refAddr = normalizeAddress(user.referredBy);
+                        if (refAddr) {
+                            await User.updateOne(
+                                { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                                { $inc: { referralPoints: 100 } }
+                            );
+                            console.log(`Referral Reward (P2P ${role}): received 100 points for referring ${addr}`);
                         }
                     }
                     user.hasDoneFirstTrade = true;
@@ -74,12 +80,18 @@ export const releaseFunds = async (req: Request, res: Response): Promise<void> =
         }
 
         // @ts-ignore
-        const userWallet = req.user.walletAddress;
+        const userWallet = req.user.walletAddress as string;
+        // H1: normalize address from session before use in query
+        const walletAddr = normalizeAddress(userWallet);
+        if (!walletAddr) {
+            res.status(400).json({ error: 'Invalid wallet address in session' });
+            return;
+        }
 
         // Find trade specifically for this seller to avoid stale data collisions
         const trade = await Trade.findOne({
             purchaseId: Number(purchaseId),
-            seller: { $regex: new RegExp(`^${userWallet}$`, 'i') }
+            seller: { $regex: `^${walletAddr}$`, $options: 'i' }
         });
 
         if (!trade) {
@@ -90,7 +102,7 @@ export const releaseFunds = async (req: Request, res: Response): Promise<void> =
         console.log("Checking Authorization:");
         console.log("Trade ID:", purchaseId);
         console.log("Trade Seller (DB):", trade.seller);
-        console.log("User Wallet (Token):", userWallet);
+        console.log("User Wallet (Token):", walletAddr);
         console.log("Release funds got hit3...")
 
 
@@ -121,11 +133,17 @@ export const getTradesByUser = async (req: Request, res: Response): Promise<void
             return;
         }
 
-        // Case-insensitive search for buyer or seller matching the address
+        // H1: validate address format before use in query (prevents regex injection/ReDoS)
+        const addr = normalizeAddress(address);
+        if (!addr) {
+            res.status(400).json({ error: "Invalid wallet address" });
+            return;
+        }
+
         const trades = await Trade.find({
             $or: [
-                { buyer: { $regex: new RegExp(`^${address}$`, 'i') } },
-                { seller: { $regex: new RegExp(`^${address}$`, 'i') } }
+                { buyer: { $regex: `^${addr}$`, $options: 'i' } },
+                { seller: { $regex: `^${addr}$`, $options: 'i' } }
             ]
         }).sort({ createdAt: -1 });
 
@@ -148,12 +166,17 @@ export const reportNotReceived = async (req: Request, res: Response): Promise<vo
         }
 
         // @ts-ignore
-        const userWallet = req.user.walletAddress;
+        const userWallet = req.user.walletAddress as string;
+        // H1: normalize address from session before use in query
+        const walletAddr = normalizeAddress(userWallet);
+        if (!walletAddr) {
+            res.status(400).json({ error: 'Invalid wallet address in session' });
+            return;
+        }
 
-        // Find trade specifically for this seller
         const trade = await Trade.findOne({
             purchaseId: Number(purchaseId),
-            seller: { $regex: new RegExp(`^${userWallet}$`, 'i') }
+            seller: { $regex: `^${walletAddr}$`, $options: 'i' }
         });
 
         if (!trade) {
@@ -168,7 +191,7 @@ export const reportNotReceived = async (req: Request, res: Response): Promise<vo
         // Create Complaint entry
         await Complaint.create({
             purchaseId: Number(purchaseId),
-            reporter: userWallet,
+            reporter: walletAddr,
             reason: 'Seller reported payment not received'
         });
 

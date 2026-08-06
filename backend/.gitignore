@@ -7,7 +7,10 @@ dist
 
 
 # Environment variables
-# .env
+.env
+*.env
+!.env.example
+.localdb/
 
 # IDE
 .idea
@@ -21,3 +24,6 @@ logs
 
 # Other
 .DS_Store
+.env.production
+.gitignore
+.env.testnet

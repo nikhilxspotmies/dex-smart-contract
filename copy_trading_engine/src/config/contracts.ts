@@ -55,23 +55,43 @@ export const ERC20_ABI = [
 ];
 
 // --- Whitelist ---
-// Updated to match the Integration Script Mocks if possible, or generic placeholders
+// `decimals` here are defaults; the real values are read on-chain by
+// resolveTokenDecimals() at startup so we never assume 18 (local USDC is 6-dec).
 export const WHITELIST = {
     "USDC": {
-        // Replace with deployed Token A address
+        // Token A (asset in this demo)
         address: process.env.TOKEN_A_ADDRESS || "0x0000000000000000000000000000000000000000",
         decimals: 18,
         symbol: "USDC"
     },
     "ETH": {
-        // Replace with deployed Token B address
+        // Token B (quote token in this demo)
         address: process.env.TOKEN_B_ADDRESS || "0x0000000000000000000000000000000000000000",
         decimals: 18,
         symbol: "ETH"
     }
 };
 
-// Base Token for Pricing (USD-like or Native)
-// For this demo, let's assume ETH is the "Quote" token (like USDC)
+// Base Token for Pricing (the quote token). QUOTE_TOKEN_DECIMALS is populated
+// on-chain by resolveTokenDecimals() — exported as `let` so importers see the
+// resolved value via live bindings.
 export const QUOTE_TOKEN_ADDRESS = WHITELIST.ETH.address;
-export const QUOTE_TOKEN_DECIMALS = 18;
+export let QUOTE_TOKEN_DECIMALS = 18;
+
+/**
+ * Read each whitelisted token's real decimals from the chain and patch the
+ * WHITELIST + QUOTE_TOKEN_DECIMALS. Call once at engine startup before any
+ * portfolio/price math. Safe on both Anvil (mixed 6/18) and BSC (18).
+ */
+export async function resolveTokenDecimals(provider: ethers.Provider): Promise<void> {
+    for (const config of Object.values(WHITELIST)) {
+        try {
+            const token = new ethers.Contract(config.address, ERC20_ABI, provider);
+            config.decimals = Number(await (token as any).decimals());
+        } catch (e) {
+            console.warn(`Could not read decimals for ${config.symbol} (${config.address}), keeping ${config.decimals}`);
+        }
+    }
+    QUOTE_TOKEN_DECIMALS = WHITELIST.ETH.decimals;
+    console.log(`Resolved decimals — USDC: ${WHITELIST.USDC.decimals}, ETH(quote): ${WHITELIST.ETH.decimals}`);
+}

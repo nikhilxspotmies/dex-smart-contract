@@ -24,6 +24,7 @@ contract SecurityAuditTest is Test {
     address lp = address(0x1);
     address trader = address(0x2);
     address hacker = address(0x666); // The malicious actor
+    address keeper = address(0x999); // The authorised executor
 
     uint256 constant WAD = 1e18;
 
@@ -48,6 +49,7 @@ contract SecurityAuditTest is Test {
 
         router.setPositionManager(address(pm));
         market.setPositionManager(address(pm));
+        pm.setKeeper(keeper, true);
 
         // 2. Fund Accounts
         usdc.mint(lp, 1_000_000 * 1e6);
@@ -83,8 +85,14 @@ contract SecurityAuditTest is Test {
             fee
         );
 
+        // Execution is now keeper-gated: an arbitrary address cannot execute at all.
+        _advanceBlock();
+        vm.prank(hacker);
+        vm.expectRevert(PositionManager.NotKeeper.selector);
+        pm.executeIncrease(reqId);
+
         // Valid keeper executes open (this part is normal)
-        vm.prank(address(0x999));
+        vm.prank(keeper);
         pm.executeIncrease(reqId);
 
         // --- 2. Price Moves Up (Profit) ---
@@ -105,11 +113,14 @@ contract SecurityAuditTest is Test {
             fee
         );
 
-        // --- 4. HACKER Executes the Request ---
-        vm.startPrank(hacker);
-        // Hacker thinks: "I will call this and maybe I get the funds?"
+        // --- 4. HACKER tries to execute, then the keeper does ---
+        _advanceBlock();
+        vm.prank(hacker);
+        vm.expectRevert(PositionManager.NotKeeper.selector);
         pm.executeDecrease(closeReqId);
-        vm.stopPrank();
+
+        vm.prank(keeper);
+        pm.executeDecrease(closeReqId);
 
         // --- 5. Verify Balances ---
         uint256 traderBalanceAfter = usdc.balanceOf(trader);
@@ -121,14 +132,23 @@ contract SecurityAuditTest is Test {
         // Should be > $200
         assertGt(profit, 200 * 1e6, "Trader received collateral + profit");
 
-        // Hacker should have: Same balance (or + fee if they set themselves as executor, but Router/PM logic dictates fee recipient)
-        // In current PositionManager, executeDecrease sends fee to msg.sender (the executor).
-        // So hacker gets the $1 fee (legitimate service payment), but NOT the trade profit.
-        
+        // The hacker is not a keeper, so both of their attempts reverted: they earn
+        // nothing at all - not the trade profit, and not even the execution fee, which
+        // now goes to the registered keeper that actually did the work.
         uint256 hackerGain = hackerBalanceAfter - hackerBalanceBefore;
-        assertEq(hackerGain, fee, "Hacker only got the execution fee");
-        
-        // Ensure hacker did not get the $100 profit
-        assertLt(hackerGain, 50 * 1e6, "Hacker definitely did not get the profit");
+        assertEq(hackerGain, 0, "Non-keeper gained nothing");
+        assertEq(usdc.balanceOf(keeper), fee * 2, "Keeper earned both execution fees");
     }
+
+    // Execution is gated behind minExecutionDelayBlocks, so a request can never be
+    // executed in the block it was created in. Uses a monotonic counter rather than
+    // block.number + 1, which does not reliably advance across a single test body.
+    uint256 private _blk;
+
+    function _advanceBlock() internal {
+        if (_blk == 0) _blk = block.number;
+        _blk += 1;
+        vm.roll(_blk);
+    }
+
 }

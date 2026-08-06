@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import SwapTrade from '../models/SwapTrade.js';
-
 import User from '../models/User.js';
+import { normalizeAddress } from '../utils/addressUtils.js';
 
 export const storeSwap = async (req: Request, res: Response) => {
     try {
@@ -24,19 +24,24 @@ export const storeSwap = async (req: Request, res: Response) => {
 
         // Referral Logic
         try {
-            const currentUser = await User.findOne({ walletAddress: { $regex: new RegExp(`^${userAddress}$`, 'i') } });
-
-            if (currentUser && !currentUser.hasDoneFirstTrade) {
-                if (currentUser.referredBy) {
-                    const referrer = await User.findOne({ walletAddress: { $regex: new RegExp(`^${currentUser.referredBy}$`, 'i') } });
-                    if (referrer) {
-                        referrer.referralPoints = (referrer.referralPoints || 0) + 100;
-                        await referrer.save();
-                        console.log(`Referral Reward (Swap): ${referrer.walletAddress} received 100 points`);
+            // H1: validate address format before use in query (prevents regex injection/ReDoS)
+            const swapAddr = normalizeAddress(userAddress);
+            if (swapAddr) {
+                const currentUser = await User.findOne({ walletAddress: { $regex: `^${swapAddr}$`, $options: 'i' } });
+                if (currentUser && !currentUser.hasDoneFirstTrade) {
+                    if (currentUser.referredBy) {
+                        const refAddr = normalizeAddress(currentUser.referredBy);
+                        if (refAddr) {
+                            await User.updateOne(
+                                { walletAddress: { $regex: `^${refAddr}$`, $options: 'i' } },
+                                { $inc: { referralPoints: 100 } }
+                            );
+                            console.log(`Referral Reward (Swap): received 100 points for referring ${swapAddr}`);
+                        }
                     }
+                    currentUser.hasDoneFirstTrade = true;
+                    await currentUser.save();
                 }
-                currentUser.hasDoneFirstTrade = true;
-                await currentUser.save();
             }
         } catch (refError) {
             console.error("Referral Logic Error (Swap):", refError);

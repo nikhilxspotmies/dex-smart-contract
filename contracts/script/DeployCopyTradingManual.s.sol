@@ -21,8 +21,8 @@ contract DeployCopyTradingManual is Script {
         CopyTradingVault copyVaultImpl = new CopyTradingVault();
         console.log("New Vault Implementation:", address(copyVaultImpl));
 
-        address executor = deployer; // The Engine Wallet
-        address owner = deployer;    // The Admin/Owner (User)
+        address executor = vm.envOr("EXECUTOR_ADDRESS", deployer);
+        address owner = deployer;
 
         CopyTradingFactory copyFactory = new CopyTradingFactory(
             address(copyVaultImpl),

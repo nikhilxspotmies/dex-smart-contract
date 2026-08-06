@@ -113,39 +113,20 @@ export class PriceService {
         // 2. If exists, update high/low/close
         // 3. If not, create new
 
-        // Using findOneAndUpdate with upsert
-        const candle: any = await Candle.findOne({
-            symbol,
-            timeframe,
-            time: candleTimestamp
-        });
+        const prevTimestamp = candleTimestamp - candleSize;
+        const prevCandle = await Candle.findOne({ symbol, timeframe, time: prevTimestamp });
+        const open = prevCandle ? prevCandle.close : price;
 
-        if (candle) {
-            // Update existing
-            candle.high = Math.max(candle.high, price);
-            candle.low = Math.min(candle.low, price);
-            candle.close = price;
-            await candle.save();
-        } else {
-            // Create new
-            // We need to know the 'open'. Ideally, it's the 'close' of the previous candle.
-            // Or if this is the very first tick of the new minute, it's 'price'.
-
-            // Try to find previous candle close
-            const prevTimestamp = candleTimestamp - candleSize;
-            const prevCandle = await Candle.findOne({ symbol, timeframe, time: prevTimestamp });
-            const open = prevCandle ? prevCandle.close : price;
-
-            await Candle.create({
-                symbol,
-                timeframe,
-                time: candleTimestamp,
-                open: open,
-                high: price,
-                low: price,
-                close: price
-            });
-        }
+        await Candle.findOneAndUpdate(
+            { symbol, timeframe, time: candleTimestamp },
+            {
+                $setOnInsert: { open },
+                $max: { high: price },
+                $min: { low: price },
+                $set: { close: price },
+            },
+            { upsert: true, returnDocument: "after" }
+        );
     }
 
     private getTimeframeSeconds(tf: string): number {

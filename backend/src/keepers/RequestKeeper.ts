@@ -1,5 +1,6 @@
 
 import { getContract, readContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getRpcClient, eth_blockNumber } from "thirdweb/rpc";
 import { client, chain } from "../utils/client.js";
 import { privateKeyToAccount } from "thirdweb/wallets";
 import { config } from "dotenv";
@@ -14,6 +15,11 @@ if (!ROUTER_ADDRESS || !PM_ADDRESS) {
 }
 
 const POLL_INTERVAL = 5000; // 5 seconds for trade execution
+
+// Must mirror Router.Request exactly. The trailing blockNumber was added alongside the
+// PositionManager execution delay - omitting it here mis-decodes the whole tuple.
+const GET_REQUEST_ABI =
+    "function getRequest(uint256) view returns (address user, address market, uint256 positionId, uint256 sizeDelta, uint256 collateralDelta, bool isLong, uint256 acceptablePrice, uint256 executionFee, bool isIncrease, bool exists, uint256 blockNumber)";
 
 export class RequestKeeper {
     private isRunning: boolean = false;
@@ -90,6 +96,13 @@ export class RequestKeeper {
             address: PM_ADDRESS
         });
 
+        const rpcRequest = getRpcClient({ client, chain });
+        const executionDelay = await readContract({
+            contract: pmContract,
+            method: "function minExecutionDelayBlocks() view returns (uint256)",
+            params: [],
+        }) as bigint;
+
         // 1. Get nextRequestId
         const nextId = await readContract({
             contract: routerContract,
@@ -107,16 +120,30 @@ export class RequestKeeper {
                 // function getRequest(uint256 id) public view returns (Request memory)
                 const request = await readContract({
                     contract: routerContract,
-                    method: "function getRequest(uint256) view returns (address user, address market, uint256 positionId, uint256 sizeDelta, uint256 collateralDelta, bool isLong, uint256 acceptablePrice, uint256 executionFee, bool isIncrease, bool exists)",
+                    method: GET_REQUEST_ABI,
                     params: [id],
                 }) as any;
 
                 console.log(`DEBUG: Request ${id} data:`, JSON.stringify(request, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
-                if (request.exists || request[9] === true) {
-                    console.log(`Executing request ${id} (${request.isIncrease ? "Increase" : "Decrease"}) for user ${request.user}`);
+                const exists = request[9] === true || request.exists === true;
+                const isIncrease = request[8] === true;
+                const user = request[0];
 
-                    const method = request.isIncrease ? "executeIncrease" : "executeDecrease";
+                if (exists) {
+                    // PositionManager rejects execution inside minExecutionDelayBlocks of the
+                    // request's own block. Check locally first - sending anyway would revert
+                    // on-chain and still cost gas.
+                    const requestBlock = BigInt(request[10] ?? request.blockNumber ?? 0);
+                    const currentBlock = await eth_blockNumber(rpcRequest);
+                    if (currentBlock < requestBlock + executionDelay) {
+                        console.log(`Request ${id} still within execution delay, retrying next tick.`);
+                        continue;
+                    }
+
+                    console.log(`Executing request ${id} (${isIncrease ? "Increase" : "Decrease"}) for user ${user}`);
+
+                    const method = isIncrease ? "executeIncrease" : "executeDecrease";
                     const tx = prepareContractCall({
                         contract: pmContract,
                         method: `function ${method}(uint256 requestId)`,
@@ -139,10 +166,10 @@ export class RequestKeeper {
                 try {
                     const checkReq = await readContract({
                         contract: routerContract,
-                        method: "function getRequest(uint256) view returns (address user, address market, uint256 positionId, uint256 sizeDelta, uint256 collateralDelta, bool isLong, uint256 acceptablePrice, uint256 executionFee, bool isIncrease, bool exists)",
+                        method: GET_REQUEST_ABI,
                         params: [id],
                     }) as any;
-                    if (!checkReq.exists) {
+                    if (!(checkReq[9] === true || checkReq.exists === true)) {
                         console.log(`Request ${id} no longer exists, marking as processed.`);
                         this.lastProcessedRequestId = id + 1n;
                     } else {

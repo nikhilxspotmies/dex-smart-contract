@@ -49,6 +49,8 @@ contract MarketTest is Test {
 
         router.setPositionManager(address(pm));
         market.setPositionManager(address(pm));
+        pm.setKeeper(address(this), true);
+        pm.setKeeper(keeper, true);
 
         vm.prank(lp);
         usdc.approve(address(vault), type(uint256).max);
@@ -59,6 +61,7 @@ contract MarketTest is Test {
     function _priceUp(uint256 newPrice) internal {
         oracle.setAnswer(int256(newPrice)); // 8 decimals
     }
+
 
     // Helper to get positionId from event
     function _getPositionIdFromEvent(address user) internal returns (uint256) {
@@ -90,6 +93,7 @@ contract MarketTest is Test {
         );
 
         // Keeper executes at 2000
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -109,6 +113,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -122,7 +127,7 @@ contract MarketTest is Test {
         vault.deposit(500_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 400 * 1e6;
+        uint256 collateral = 600 * 1e6; // C3: must respect 10x initial-margin cap
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -135,6 +140,7 @@ contract MarketTest is Test {
             2_100 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -172,6 +178,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -195,6 +202,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -226,6 +234,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
 
@@ -249,6 +258,7 @@ contract MarketTest is Test {
             2_150 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req2);
 
@@ -268,6 +278,7 @@ contract MarketTest is Test {
             2_150 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -293,6 +304,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 longPosId = _getPositionIdFromEvent(trader);
@@ -308,6 +320,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req2);
         uint256 longPosId2 = _getPositionIdFromEvent(trader);
@@ -323,6 +336,7 @@ contract MarketTest is Test {
             1_950 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req3);
         uint256 shortPosId = _getPositionIdFromEvent(trader);
@@ -355,6 +369,7 @@ contract MarketTest is Test {
             2_150 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq1);
 
@@ -370,6 +385,7 @@ contract MarketTest is Test {
             2_250 * 1e18, // acceptable max (>= current price 2200)
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq2);
 
@@ -404,6 +420,7 @@ contract MarketTest is Test {
                 (2_050 + i * 100) * 1e18,
                 executionFee
             );
+            _advanceBlock();
             vm.prank(keeper);
             pm.executeIncrease(reqId);
 
@@ -433,6 +450,7 @@ contract MarketTest is Test {
                 2_400 * 1e18,
                 executionFee
             );
+            _advanceBlock();
             vm.prank(keeper);
             pm.executeDecrease(decReq);
         }
@@ -463,6 +481,7 @@ contract MarketTest is Test {
                 (2_150 - i * 100) * 1e18,
                 executionFee
             );
+            _advanceBlock();
             vm.prank(keeper);
             pm.executeIncrease(reqId);
 
@@ -486,6 +505,7 @@ contract MarketTest is Test {
                 1_850 * 1e18,
                 executionFee
             );
+            _advanceBlock();
             vm.prank(keeper);
             pm.executeDecrease(decReq);
         }
@@ -519,6 +539,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 longTermPosId = _getPositionIdFromEvent(trader);
@@ -535,6 +556,7 @@ contract MarketTest is Test {
             2_150 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req2);
         uint256 scalpPosId = _getPositionIdFromEvent(trader);
@@ -551,6 +573,7 @@ contract MarketTest is Test {
             2_150 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req3);
         uint256 hedgePosId = _getPositionIdFromEvent(trader);
@@ -572,6 +595,7 @@ contract MarketTest is Test {
             2_250 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq1);
 
@@ -586,6 +610,7 @@ contract MarketTest is Test {
             2_350 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req4);
 
@@ -602,6 +627,7 @@ contract MarketTest is Test {
             2_350 * 1e18, // acceptable max (>= current price 2300)
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq2);
 
@@ -632,6 +658,7 @@ contract MarketTest is Test {
                 i % 2 == 0 ? 2_050 * 1e18 : 1_950 * 1e18,
                 executionFee
             );
+            _advanceBlock();
             vm.prank(keeper);
             pm.executeIncrease(reqId);
             createdIds[i] = _getPositionIdFromEvent(trader);
@@ -683,6 +710,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("slip long");
         pm.executeIncrease(reqId);
@@ -710,6 +738,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("slip short");
         pm.executeIncrease(reqId);
@@ -734,6 +763,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
 
@@ -752,6 +782,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("slip long dec");
         pm.executeDecrease(decReq);
@@ -776,6 +807,7 @@ contract MarketTest is Test {
             1_950 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
 
@@ -794,6 +826,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("slip short dec");
         pm.executeDecrease(decReq);
@@ -824,6 +857,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("oi long cap");
         pm.executeIncrease(reqId);
@@ -839,6 +873,7 @@ contract MarketTest is Test {
         uint256 executionFee = 1 * 1e6;
 
         uint256 vaultBalBefore = vault.totalAssets();
+        uint256 rawBalBefore = usdc.balanceOf(address(vault));
 
         vm.prank(trader);
         uint256 reqId = router.createIncreaseRequest(
@@ -851,14 +886,21 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
         uint256 positionId = _getPositionIdFromEvent(trader);
 
-        uint256 vaultBalAfter = vault.totalAssets();
-        // Vault gets full collateral (fee is deducted from collateral but stays in vault)
-        assertEq(vaultBalAfter, vaultBalBefore + collateral, "collateral in vault");
+        uint256 rawBalAfter = usdc.balanceOf(address(vault));
+        // The vault's raw balance grows by the full collateral, but that money is not
+        // LP equity: only the 0.1% open fee is. The rest is the trader's, reserved
+        // until they close, and must be excluded from totalAssets() - otherwise LPs
+        // can redeem against collateral they do not own.
+        uint256 openFee = (sizeUsd * market.FEE_BPS()) / market.BPS_DIV() / 1e12;
+        assertEq(rawBalAfter, rawBalBefore + collateral, "full collateral sits in the vault");
+        assertEq(vault.reservedAssets(), collateral - openFee, "trader collateral is reserved");
+        assertEq(vault.totalAssets(), vaultBalBefore + openFee, "LP equity grows only by the fee");
 
         // Close position and check fee again
         _priceUp(2_200 * 1e8);
@@ -874,6 +916,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -906,6 +949,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 longPosId = _getPositionIdFromEvent(trader);
@@ -921,6 +965,7 @@ contract MarketTest is Test {
             1_950 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req2);
 
@@ -941,6 +986,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -968,6 +1014,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -986,7 +1033,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 200 * 1e6; // Small collateral
+        uint256 collateral = 600 * 1e6; // C3: 10x cap (was 200, still liquidatable on crash)
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -999,6 +1046,7 @@ contract MarketTest is Test {
             2_100 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -1028,11 +1076,12 @@ contract MarketTest is Test {
             address(market),
             0,
             5_000 * WAD, // Large, risky
-            200 * 1e6,
+            600 * 1e6, // C3: 10x cap (still liquidatable on crash)
             true,
             2_100 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 riskyPosId = _getPositionIdFromEvent(trader);
@@ -1047,6 +1096,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req2);
         uint256 safePosId = _getPositionIdFromEvent(trader);
@@ -1075,7 +1125,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 100 * 1e6; // Small collateral
+        uint256 collateral = 600 * 1e6; // C3: 10x cap (was 100, full wipeout still occurs on 75% crash)
         uint256 executionFee = 1 * 1e6;
 
         vm.prank(trader);
@@ -1088,6 +1138,7 @@ contract MarketTest is Test {
             2_100 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -1108,6 +1159,7 @@ contract MarketTest is Test {
         );
 
         uint256 balBeforeClose = usdc.balanceOf(trader);
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -1138,6 +1190,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -1160,6 +1213,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -1190,6 +1244,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -1215,6 +1270,7 @@ contract MarketTest is Test {
             2_000 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -1232,6 +1288,7 @@ contract MarketTest is Test {
             2_000 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeDecrease(decReq);
 
@@ -1247,7 +1304,7 @@ contract MarketTest is Test {
         vault.deposit(1_000_000 * 1e6, lp);
 
         uint256 sizeUsd = 5_000 * WAD;
-        uint256 collateral = 200 * 1e6;
+        uint256 collateral = 600 * 1e6; // C3: 10x cap
         uint256 executionFee = 1 * 1e6;
 
         // Open profitable long position
@@ -1261,6 +1318,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(reqId);
 
@@ -1317,6 +1375,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("not owner");
         pm.executeDecrease(decReq);
@@ -1344,6 +1403,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 traderPosId = _getPositionIdFromEvent(trader);
@@ -1359,6 +1419,7 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("not owner");
         pm.executeDecrease(decReq);
@@ -1381,6 +1442,7 @@ contract MarketTest is Test {
             2_050 * 1e18,
             executionFee
         );
+        _advanceBlock();
         vm.prank(keeper);
         pm.executeIncrease(req1);
         uint256 longPosId = _getPositionIdFromEvent(trader);
@@ -1397,8 +1459,21 @@ contract MarketTest is Test {
             executionFee
         );
 
+        _advanceBlock();
         vm.prank(keeper);
         vm.expectRevert("side mismatch");
         pm.executeIncrease(req2);
     }
+
+    // Execution is gated behind minExecutionDelayBlocks, so a request can never be
+    // executed in the block it was created in. Uses a monotonic counter rather than
+    // block.number + 1, which does not reliably advance across a single test body.
+    uint256 private _blk;
+
+    function _advanceBlock() internal {
+        if (_blk == 0) _blk = block.number;
+        _blk += 1;
+        vm.roll(_blk);
+    }
+
 }

@@ -13,7 +13,9 @@ export interface Token {
 // gets stored under a raw-address key and its chart shows no data.
 //
 // Addresses come from env (see .env.production); the fallbacks are the Binance-Pegged
-// BEP-20 tokens on BSC mainnet, all 18 decimals.
+// BEP-20 tokens on BSC mainnet. Decimals are NOT uniformly 18 — TRX is 6 and DOGE is 8,
+// and since a token missing from this list falls back to 18 in matching.service.ts, an
+// omission there misprices the fill by 10^12 / 10^10 rather than merely losing a label.
 //
 // Built lazily: ESM evaluates imports before the importing module's dotenv.config()
 // call, so reading process.env at module scope here would always miss the .env file.
@@ -24,10 +26,10 @@ export const getTokens = (): Token[] => {
 
     cached = [
         {
-            symbol: "USDC",
-            name: "USDC (Binance-Pegged)",
-            address: process.env.TOKEN_USDC_ADDRESS || "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-            logo: "US",
+            symbol: "BTCB",
+            name: "Bitcoin (Binance-Pegged)",
+            address: process.env.TOKEN_BTCB_ADDRESS || "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+            logo: "B",
             decimals: 18,
             balance: "1000.0"
         },
@@ -49,10 +51,58 @@ export const getTokens = (): Token[] => {
             balance: "1000.0"
         },
         {
+            symbol: "WBNB",
+            name: "Wrapped BNB",
+            address: process.env.TOKEN_WBNB_ADDRESS || "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+            logo: "BN",
+            decimals: 18,
+            balance: "1000.0"
+        },
+        {
+            symbol: "XRP",
+            name: "XRP (Binance-Pegged)",
+            address: process.env.TOKEN_XRP_ADDRESS || "0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE",
+            logo: "X",
+            decimals: 18,
+            balance: "1000.0"
+        },
+        {
+            symbol: "USDC",
+            name: "USDC (Binance-Pegged)",
+            address: process.env.TOKEN_USDC_ADDRESS || "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+            logo: "US",
+            decimals: 18,
+            balance: "1000.0"
+        },
+        {
             symbol: "SOL",
             name: "Wrapped SOL (Binance-Pegged)",
             address: process.env.TOKEN_SOL_ADDRESS || "0x570A5D26f7765Ecb712C0924E4De545B89fD43dF",
             logo: "S",
+            decimals: 18,
+            balance: "1000.0"
+        },
+        {
+            symbol: "TRX",
+            name: "TRON (Binance-Pegged)",
+            address: process.env.TOKEN_TRX_ADDRESS || "0xCE7de646e7208a4Ef112cb6ed5038FA6cC6b12e3",
+            logo: "TR",
+            decimals: 6,
+            balance: "1000.0"
+        },
+        {
+            symbol: "DOGE",
+            name: "Dogecoin (Binance-Pegged)",
+            address: process.env.TOKEN_DOGE_ADDRESS || "0xbA2aE424d960c26247Dd6c32edC70B295c744C43",
+            logo: "D",
+            decimals: 8,
+            balance: "1000.0"
+        },
+        {
+            symbol: "CAKE",
+            name: "PancakeSwap Token",
+            address: process.env.TOKEN_CAKE_ADDRESS || "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
+            logo: "C",
             decimals: 18,
             balance: "1000.0"
         }

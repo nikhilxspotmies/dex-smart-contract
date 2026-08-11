@@ -112,7 +112,26 @@ const generateReferralCode = async (): Promise<string> => {
  * reconcile later. Email is the one thing KYC can't be relied on to supply (verified
  * Sumsub applicants can have no email at all), so it's the one thing we ask for.
  */
-const isProfileComplete = (user: any): boolean => Boolean(user.email);
+/**
+ * Onboarding is finished only once we hold a display name, a contact address and a name.
+ *
+ * `lastName` is deliberately NOT required: a GREEN Sumsub applicant can carry no last
+ * name at all (see extractVerifiedName in kycController), and since KYC also freezes the
+ * name fields, requiring it would lock such a user out of the app with no way to comply.
+ */
+const isProfileComplete = (user: any): boolean =>
+    Boolean(user.UserName && user.email && user.firstName);
+
+// Display name: letters, digits, dot and underscore. Long enough to be meaningful,
+// short enough to render in the UI without truncation.
+const USERNAME_RE = /^[a-zA-Z0-9._]{3,20}$/;
+
+/** Case-insensitive lookup — "Trader1" and "trader1" must not be two different people. */
+const userNameTaken = async (name: string, exceptId?: any) => {
+    const query: any = { UserName: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } };
+    if (exceptId) query._id = { $ne: exceptId };
+    return Boolean(await User.findOne(query));
+};
 
 const publicUser = (user: any) => ({
     UserName: user.UserName,
@@ -175,12 +194,21 @@ export const authenticate = async (req: Request, res: Response) => {
             : undefined;
         if (email && (await User.findOne({ email }))) email = undefined;
 
+        // Same rule for the display name: a seeded value that's malformed or already
+        // taken is dropped rather than blocking signup. Onboarding then asks for it,
+        // which is where the user gets a real error message they can act on.
+        let seededUserName: string | undefined =
+            typeof UserName === 'string' ? UserName.trim() : undefined;
+        if (seededUserName && (!USERNAME_RE.test(seededUserName) || (await userNameTaken(seededUserName)))) {
+            seededUserName = undefined;
+        }
+
         const referrer = referralCode ? await User.findOne({ referralCode }) : null;
 
         const newUser = new User({
             walletAddress: address,
             email: email || undefined,
-            UserName,
+            UserName: seededUserName,
             firstName,
             lastName,
             referralCode: await generateReferralCode(),
@@ -286,7 +314,27 @@ export const updateUserProfile = async (req: any, res: Response) => {
             }
         }
 
-        if (UserName !== undefined) user.UserName = UserName;
+        if (UserName !== undefined) {
+            const next = String(UserName).trim();
+            if (!USERNAME_RE.test(next)) {
+                res.status(400).json({
+                    message: 'Username must be 3-20 characters, using only letters, numbers, dots or underscores.',
+                    code: 'USERNAME_INVALID',
+                });
+                return;
+            }
+            // Compared case-insensitively so two people can't hold "Trader1"/"trader1".
+            if (next.toLowerCase() !== String(user.UserName || '').toLowerCase()) {
+                if (await userNameTaken(next, user._id)) {
+                    res.status(409).json({
+                        message: 'That username is already taken.',
+                        code: 'USERNAME_TAKEN',
+                    });
+                    return;
+                }
+            }
+            user.UserName = next;
+        }
         if (!nameIsLocked) {
             if (firstName !== undefined) user.firstName = firstName;
             if (lastName !== undefined) user.lastName = lastName;

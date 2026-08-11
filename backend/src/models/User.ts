@@ -32,7 +32,9 @@ export interface IUser extends Document {
 }
 
 const UserSchema: Schema = new Schema({
-    UserName: { type: String, required: false },
+    // Optional at creation (a wallet can sign in before onboarding runs), but unique
+    // once set — see the index below. `trim` matters: " bob" and "bob" must collide.
+    UserName: { type: String, required: false, trim: true },
     firstName: { type: String, required: false },
     lastName: { type: String, required: false },
 
@@ -58,5 +60,27 @@ const UserSchema: Schema = new Schema({
     kycIsFinal: { type: Boolean, default: false }
 
 });
+
+/**
+ * Usernames are unique case-insensitively (collation strength 2), so "Trader1" and
+ * "trader1" cannot both exist.
+ *
+ * Partial rather than sparse: a sparse unique index still indexes documents holding an
+ * explicit `null`, so a second null would collide. Restricting to actual strings means
+ * any number of accounts can sit in onboarding without a username yet.
+ *
+ * NOTE: Mongoose creates missing indexes but never alters an existing one. If a plain
+ * `UserName_1` already exists on a deployment, it must be dropped by hand before this
+ * definition takes effect.
+ */
+UserSchema.index(
+    { UserName: 1 },
+    {
+        name: 'UserName_1',
+        unique: true,
+        partialFilterExpression: { UserName: { $type: 'string' } },
+        collation: { locale: 'en', strength: 2 },
+    }
+);
 
 export default mongoose.model<IUser>('User', UserSchema);

@@ -42,7 +42,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:8080,http://
     .map((o) => o.trim())
     .filter(Boolean);
 
-// F-07: allowed SIWE domains = CORS hosts + optional SIWE_DOMAIN override
+// F-07: allowed SIWE domains = CORS hosts + optional SIWE_DOMAIN override(s)
 const originHosts = CORS_ORIGINS
     .map((o) => {
         try {
@@ -52,9 +52,11 @@ const originHosts = CORS_ORIGINS
         }
     })
     .filter(Boolean);
-const ALLOWED_SIWE_DOMAINS = Array.from(
-    new Set([...(process.env.SIWE_DOMAIN ? [process.env.SIWE_DOMAIN.trim()] : []), ...originHosts])
-);
+const siweDomainOverrides = (process.env.SIWE_DOMAIN || '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter(Boolean);
+const ALLOWED_SIWE_DOMAINS = Array.from(new Set([...siweDomainOverrides, ...originHosts]));
 
 export const env = {
     JWT_SECRET: JWT_SECRET as string,

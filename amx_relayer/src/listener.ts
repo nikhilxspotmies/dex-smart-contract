@@ -43,11 +43,16 @@ export async function catchUp(): Promise<void> {
     let fromBlock = getLastScannedBlock();
 
     if (fromBlock === null) {
-        const startBlockEnv = process.env.START_BLOCK;
-        fromBlock = startBlockEnv ? Number(startBlockEnv) : currentTip;
-        console.log(
-            `[listener] no prior scan state found; starting from ${startBlockEnv ? "START_BLOCK" : "current tip"} = ${fromBlock}`
-        );
+        // Unreachable in practice — index.ts refuses to start without START_BLOCK when there's
+        // no scan state. Kept as a guard so this can never silently degrade to tip-scanning if
+        // catchUp() is ever called from somewhere that skipped the preflight.
+        if (config.startBlock === undefined) {
+            throw new Error(
+                "No scan state and no START_BLOCK — refusing to scan from the tip, which would skip prior purchases."
+            );
+        }
+        fromBlock = config.startBlock;
+        console.log(`[listener] no prior scan state found; starting from START_BLOCK = ${fromBlock}`);
     } else {
         fromBlock += 1; // resume from the block after the last one we finished
     }

@@ -1,4 +1,16 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// The package root, derived from this file's own location rather than process.cwd().
+// Holds for both layouts: <pkg>/src/config.ts and <pkg>/dist/config.js are each one
+// directory below the root.
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Explicit path rather than `import "dotenv/config"`, which resolves .env against the working
+// directory — so the service would pick up its configuration only when launched from its own
+// folder. Anchoring here means `node /path/to/amx_relayer/dist/index.js` works from anywhere.
+dotenv.config({ path: resolve(packageRoot, ".env") });
 
 function requireEnv(name: string): string {
     const value = process.env[name];
@@ -8,6 +20,20 @@ function requireEnv(name: string): string {
 
 function envOr(name: string, fallback: string): string {
     return process.env[name] ?? fallback;
+}
+
+/**
+ * Resolves a relative DB path against the package root instead of the working directory.
+ *
+ * This matters more than it looks: better-sqlite3 silently CREATES a database that isn't
+ * there. So a cwd-relative path that resolves somewhere unexpected doesn't fail — it opens
+ * a brand new empty DB, which reads as "no scan state", which makes the listener resume
+ * from the current chain tip. Every purchase in the gap is skipped, and a skipped purchase
+ * is a customer who paid and never got their AMX. Anchoring to the package root means the
+ * file is found no matter where the process was launched from.
+ */
+function resolveDbPath(value: string): string {
+    return isAbsolute(value) ? value : resolve(packageRoot, value);
 }
 
 export const config = {
@@ -40,5 +66,13 @@ export const config = {
     minSweepBnbE18: BigInt(envOr("MIN_SWEEP_BNB_E18", String(1n * 10n ** 15n))), // 0.001 BNB
     minSweepTokenE18: BigInt(envOr("MIN_SWEEP_TOKEN_E18", String(1n * 10n ** 18n))), // 1 token
 
-    dbPath: envOr("DB_PATH", "./relayer.sqlite"),
+    dbPath: resolveDbPath(envOr("DB_PATH", "./relayer.sqlite")),
+
+    // Only consulted on the very first run, when the DB has no scan state yet. Undefined here
+    // is a hard startup error rather than a silent fall back to the chain tip — see index.ts.
+    startBlock: process.env.START_BLOCK ? Number(process.env.START_BLOCK) : undefined,
 } as const;
+
+if (config.startBlock !== undefined && !Number.isInteger(config.startBlock)) {
+    throw new Error(`START_BLOCK must be an integer block number, got: ${process.env.START_BLOCK}`);
+}

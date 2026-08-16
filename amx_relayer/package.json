@@ -12,6 +12,9 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
     "dotenv": "^17.2.3",

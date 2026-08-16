@@ -1,0 +1,29 @@
+{
+  "name": "amx_relayer",
+  "version": "1.0.0",
+  "description": "Watches AmxSale (BSC) Purchased events and triggers matching AmxVault.release() payouts on Amero X",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "dev": "npx tsx src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}

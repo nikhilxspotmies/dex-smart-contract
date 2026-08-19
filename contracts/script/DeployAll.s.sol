@@ -6,6 +6,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // AMM Imports
 import {Factory as AmmFactory, Router as AmmRouter} from "../src/Dex.sol";
+import {MockWETH} from "../src/MockWETH.sol";
 
 // P2P Imports
 import {P2PTokenEscrows} from "../src/P2PTokenEscrow.sol";
@@ -80,7 +81,11 @@ contract DeployAll is Script {
         AmmFactory ammFactory = new AmmFactory();
         console.log("AMM Factory deployed at:", address(ammFactory));
 
-        AmmRouter ammRouter = new AmmRouter(address(ammFactory));
+        // Local/full-stack deploy — a throwaway wrapper stands in for WBNB.
+        AmmRouter ammRouter = new AmmRouter(
+            address(ammFactory),
+            address(new MockWETH())
+        );
         console.log("AMM Router deployed at:", address(ammRouter));
 
         // Approve tokens for Router

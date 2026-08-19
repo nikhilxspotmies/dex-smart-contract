@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "../src/Dex.sol";
+import {MockWETH} from "../src/MockWETH.sol";
 import "../src/copy_trading/CopyTradingFactory.sol";
 import "../src/copy_trading/CopyTradingVault.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -30,7 +31,8 @@ contract DeployIntegration is Script {
 
         // 2. Deploy DEX System
         Factory dexFactory = new Factory();
-        Router dexRouter = new Router(address(dexFactory));
+        // Local integration deploy — a throwaway wrapper is fine here.
+        Router dexRouter = new Router(address(dexFactory), address(new MockWETH()));
         
         console.log("DEX Factory deployed at:", address(dexFactory));
         console.log("DEX Router deployed at:", address(dexRouter));

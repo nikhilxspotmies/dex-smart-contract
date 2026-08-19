@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/Dex.sol";
+import {MockWETH} from "../src/MockWETH.sol";
 import "../src/copy_trading/CopyTradingFactory.sol";
 import "../src/copy_trading/CopyTradingVault.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -57,7 +58,7 @@ contract CopyTradingIntegrationTest is Test {
 
         // 2. Deploy DEX System
         dexFactory = new Factory();
-        dexRouter = new Router(address(dexFactory));
+        dexRouter = new Router(address(dexFactory), address(new MockWETH()));
 
         // 3. Add Liquidity (Initial Pool)
         tokenA.approve(address(dexRouter), type(uint256).max);

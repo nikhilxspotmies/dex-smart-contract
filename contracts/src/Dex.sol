@@ -250,11 +250,37 @@ contract Pair is ReentrancyGuard {
 // ---------------------------
 // Router
 // ---------------------------
-contract Router {
+/// @dev Canonical wrapped-native interface (WBNB on BSC, WETH on Ethereum).
+interface IWETH {
+    function deposit() external payable;
+
+    function withdraw(uint256) external;
+
+    function transfer(address to, uint256 value) external returns (bool);
+}
+
+contract Router is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public factory;
-    
+
+    /**
+     * @dev Wrapped native coin. On BSC this holds WBNB
+     * (0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c) — NOT wrapped ether.
+     *
+     * Native BNB is not an ERC-20 — it has no `transferFrom` — so pools can only ever
+     * hold the wrapper. The `*ETH` entrypoints below wrap on the way in and unwrap on
+     * the way out, so callers can deal in native BNB and never touch WBNB by hand.
+     *
+     * The `WETH` name is kept deliberately despite being wrong on this chain: it is the
+     * Uniswap V2 name that every fork inherited, and PancakeSwap's own BSC router
+     * likewise exposes WBNB through a getter called `WETH()` (verified on mainnet — it
+     * has no `WBNB()` getter at all). Aggregators and integrators probe for that exact
+     * selector to identify a V2-style router, so renaming it would read better and
+     * silently cost interoperability. Ops-facing names say WBNB; this one stays.
+     */
+    address public immutable WETH;
+
     event SwapExecuted(
         address indexed sender,
         address[] path,
@@ -262,8 +288,24 @@ contract Router {
         address indexed to
     );
 
-    constructor(address _factory) {
+    constructor(address _factory, address _WETH) {
+        require(_factory != address(0), "Zero factory");
+        require(_WETH != address(0), "Zero WETH");
         factory = _factory;
+        WETH = _WETH;
+    }
+
+    /**
+     * @dev Native coin is only ever accepted from the wrapper, during `withdraw()`.
+     * Anything else would sit here unrecoverable, so reject it outright.
+     */
+    receive() external payable {
+        require(msg.sender == WETH, "Only WETH");
+    }
+
+    function _safeTransferETH(address to, uint256 value) internal {
+        (bool success, ) = to.call{value: value}("");
+        require(success, "ETH transfer failed");
     }
 
     // --- PASTE THIS MISSING PART ---
@@ -307,27 +349,43 @@ contract Router {
             : (reserve1, reserve0);
     }
 
-    // NOTE: Added 'deadline' param and 'ensure' modifier here too!
-    function addLiquidity(
+    /**
+     * @dev Re-orient a pair's reserves from its own sorted (token0, token1) order into
+     * the caller's (tokenA, tokenB) order.
+     *
+     * `Pair.getReserves()` always reports sorted-first, since `Factory.createPair`
+     * sorts before `initialize`. Reading it as though it matched the argument order
+     * silently transposes the two whenever `tokenA > tokenB`, which mispriced the
+     * optimal-ratio maths below and let deposits land at the wrong ratio.
+     */
+    function _reservesFor(
+        address pair,
+        address tokenA,
+        address tokenB
+    ) internal view returns (uint reserveA, uint reserveB) {
+        (uint reserve0, uint reserve1) = Pair(pair).getReserves();
+        (reserveA, reserveB) = tokenA < tokenB
+            ? (reserve0, reserve1)
+            : (reserve1, reserve0);
+    }
+
+    /// @dev Shared ratio maths for both the plain and native-coin liquidity paths.
+    /// Resolves (creating if needed) the pair and settles the amounts actually to be
+    /// deposited; the caller is left to move the funds, which differ per entrypoint.
+    function _addLiquidity(
         address tokenA,
         address tokenB,
         uint amountADesired,
         uint amountBDesired,
         uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline
-    )
-        external
-        ensure(deadline)
-        returns (uint amountA, uint amountB, uint liquidity)
-    {
-        address pair = Factory(factory).getPair(tokenA, tokenB);
+        uint amountBMin
+    ) internal returns (address pair, uint amountA, uint amountB) {
+        pair = Factory(factory).getPair(tokenA, tokenB);
         if (pair == address(0)) {
             pair = Factory(factory).createPair(tokenA, tokenB);
         }
 
-        (uint reserveA, uint reserveB) = Pair(pair).getReserves();
+        (uint reserveA, uint reserveB) = _reservesFor(pair, tokenA, tokenB);
 
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
@@ -343,12 +401,118 @@ contract Router {
                 (amountA, amountB) = (amountAOptimal, amountBDesired);
             }
         }
+    }
+
+    // NOTE: Added 'deadline' param and 'ensure' modifier here too!
+    function addLiquidity(
+        address tokenA,
+        address tokenB,
+        uint amountADesired,
+        uint amountBDesired,
+        uint amountAMin,
+        uint amountBMin,
+        address to,
+        uint deadline
+    )
+        external
+        ensure(deadline)
+        returns (uint amountA, uint amountB, uint liquidity)
+    {
+        address pair;
+        (pair, amountA, amountB) = _addLiquidity(
+            tokenA,
+            tokenB,
+            amountADesired,
+            amountBDesired,
+            amountAMin,
+            amountBMin
+        );
 
         IERC20(tokenA).safeTransferFrom(msg.sender, pair, amountA);
         IERC20(tokenB).safeTransferFrom(msg.sender, pair, amountB);
         liquidity = Pair(pair).mint(to);
     }
-    
+
+    /**
+     * @notice Adds liquidity to a TOKEN/WBNB pool paying the second leg in native BNB.
+     * @dev The sent BNB is wrapped here; any excess over the optimal ratio is refunded.
+     */
+    function addLiquidityETH(
+        address token,
+        uint amountTokenDesired,
+        uint amountTokenMin,
+        uint amountETHMin,
+        address to,
+        uint deadline
+    )
+        external
+        payable
+        ensure(deadline)
+        nonReentrant
+        returns (uint amountToken, uint amountETH, uint liquidity)
+    {
+        address pair;
+        (pair, amountToken, amountETH) = _addLiquidity(
+            token,
+            WETH,
+            amountTokenDesired,
+            msg.value,
+            amountTokenMin,
+            amountETHMin
+        );
+
+        IERC20(token).safeTransferFrom(msg.sender, pair, amountToken);
+        IWETH(WETH).deposit{value: amountETH}();
+        require(IWETH(WETH).transfer(pair, amountETH), "WETH transfer failed");
+
+        liquidity = Pair(pair).mint(to);
+
+        // The optimal ratio may consume less than was sent — hand back the rest.
+        if (msg.value > amountETH) {
+            _safeTransferETH(msg.sender, msg.value - amountETH);
+        }
+    }
+
+
+    /**
+     * @dev Walks the hops, each pair paying the next one directly.
+     *
+     * Assumes `amounts[0]` of `path[0]` is ALREADY sitting in the first pair — how it
+     * got there is the caller's business (pulled from the user, or wrapped from native
+     * coin), which is precisely why that step lives outside this loop.
+     */
+    function _swap(
+        uint[] memory amounts,
+        address[] calldata path,
+        address _to
+    ) internal {
+        for (uint i; i < path.length - 1; i++) {
+            address input = path[i];
+            address output = path[i + 1];
+            address pair = Factory(factory).getPair(input, output);
+            require(pair != address(0), "Pair doesn't exist");
+
+            bool sortLowFirst = input < output;
+            uint amountOut = amounts[i + 1];
+
+            (uint amount0Out, uint amount1Out) = sortLowFirst
+                ? (uint(0), amountOut)
+                : (amountOut, uint(0));
+            address recipient = (i == path.length - 2)
+                ? _to
+                : Factory(factory).getPair(output, path[i + 2]);
+
+            Pair(pair).swap(amount0Out, amount1Out, recipient);
+        }
+    }
+
+    /// @dev Resolves the first pair in a path, reverting if it was never created.
+    function _firstPair(
+        address[] calldata path
+    ) internal view returns (address pair) {
+        pair = Factory(factory).getPair(path[0], path[1]);
+        require(pair != address(0), "Pair doesn't exist");
+    }
 
     function swapExactTokensForTokens(
         uint amountIn,
@@ -359,37 +523,78 @@ contract Router {
     ) external ensure(deadline) returns (uint[] memory amounts) {
         require(path.length >= 2, "Invalid path");
 
-        // 1) Precompute amounts
         amounts = getAmountsOut(amountIn, path);
         require(
             amounts[path.length - 1] >= amountOutMin,
             "Insufficient output amount"
         );
 
-        // 2) Execute swaps
-        for (uint i; i < path.length - 1; i++) {
-            address input = path[i];
-            address output = path[i + 1];
-            address pair = Factory(factory).getPair(input, output);
-            require(pair != address(0), "Pair doesn't exist");
+        IERC20(path[0]).safeTransferFrom(msg.sender, _firstPair(path), amounts[0]);
+        _swap(amounts, path, to);
 
-            bool sortLowFirst = input < output;
-            uint amountOut = amounts[i + 1];
+        emit SwapExecuted(msg.sender, path, amounts, to);
+    }
 
-            // Only first hop pulls from user
-            if (i == 0) {
-                IERC20(input).safeTransferFrom(msg.sender, pair, amounts[0]);
-            }
+    /**
+     * @notice Swaps native BNB for tokens. `path` must start at WBNB.
+     * @dev The sent BNB is wrapped here, so callers never handle WBNB themselves.
+     */
+    function swapExactETHForTokens(
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    )
+        external
+        payable
+        ensure(deadline)
+        nonReentrant
+        returns (uint[] memory amounts)
+    {
+        require(path.length >= 2, "Invalid path");
+        require(path[0] == WETH, "Path must start with WETH");
+        require(msg.value > 0, "Insufficient input amount");
 
-            (uint amount0Out, uint amount1Out) = sortLowFirst
-                ? (uint(0), amountOut)
-                : (amountOut, uint(0));
-            address recipient = (i == path.length - 2)
-                ? to
-                : Factory(factory).getPair(output, path[i + 2]);
+        amounts = getAmountsOut(msg.value, path);
+        require(
+            amounts[path.length - 1] >= amountOutMin,
+            "Insufficient output amount"
+        );
 
-            Pair(pair).swap(amount0Out, amount1Out, recipient);
-        }
+        IWETH(WETH).deposit{value: amounts[0]}();
+        require(
+            IWETH(WETH).transfer(_firstPair(path), amounts[0]),
+            "WETH transfer failed"
+        );
+        _swap(amounts, path, to);
+
+        emit SwapExecuted(msg.sender, path, amounts, to);
+    }
+
+    /**
+     * @notice Swaps tokens for native BNB. `path` must end at WBNB.
+     * @dev The final hop lands here rather than with `to`, so the wrapper can be
+     * unwrapped before paying out — the recipient only ever sees native BNB.
+     */
+    function swapExactTokensForETH(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external ensure(deadline) nonReentrant returns (uint[] memory amounts) {
+        require(path.length >= 2, "Invalid path");
+        require(path[path.length - 1] == WETH, "Path must end with WETH");
+
+        amounts = getAmountsOut(amountIn, path);
+        uint amountOut = amounts[path.length - 1];
+        require(amountOut >= amountOutMin, "Insufficient output amount");
+
+        IERC20(path[0]).safeTransferFrom(msg.sender, _firstPair(path), amounts[0]);
+        _swap(amounts, path, address(this));
+
+        IWETH(WETH).withdraw(amountOut);
+        _safeTransferETH(to, amountOut);
 
         emit SwapExecuted(msg.sender, path, amounts, to);
     }
@@ -409,11 +614,57 @@ contract Router {
         address lpAddr = address(Pair(pair).lpToken());
         IERC20(lpAddr).safeTransferFrom(msg.sender, pair, liquidity);
 
-        (amountA, amountB) = Pair(pair).burn(to);
+        // `burn` reports in the pair's own sorted order, not the caller's argument
+        // order — transpose before the slippage check, or the two mins get applied to
+        // the wrong legs whenever tokenA > tokenB.
+        (uint amount0, uint amount1) = Pair(pair).burn(to);
+        (amountA, amountB) = tokenA < tokenB
+            ? (amount0, amount1)
+            : (amount1, amount0);
+
         require(
             amountA >= amountAMin && amountB >= amountBMin,
             "Insufficient amounts"
         );
+    }
+
+    /**
+     * @notice Removes liquidity from a TOKEN/WBNB pool, paying the second leg out as
+     * native BNB.
+     * @dev Burns to this contract so the wrapper can be unwrapped before paying out.
+     * Requires the LP tokens to be approved to the Router first, as `removeLiquidity`
+     * does.
+     */
+    function removeLiquidityETH(
+        address token,
+        uint liquidity,
+        uint amountTokenMin,
+        uint amountETHMin,
+        address to,
+        uint deadline
+    )
+        external
+        ensure(deadline)
+        nonReentrant
+        returns (uint amountToken, uint amountETH)
+    {
+        address pair = Factory(factory).getPair(token, WETH);
+        require(pair != address(0), "Pair doesn't exist");
+
+        address lpAddr = address(Pair(pair).lpToken());
+        IERC20(lpAddr).safeTransferFrom(msg.sender, pair, liquidity);
+
+        (uint amount0, uint amount1) = Pair(pair).burn(address(this));
+        (amountToken, amountETH) = token < WETH
+            ? (amount0, amount1)
+            : (amount1, amount0);
+
+        require(amountToken >= amountTokenMin, "Insufficient token amount");
+        require(amountETH >= amountETHMin, "Insufficient ETH amount");
+
+        IERC20(token).safeTransfer(to, amountToken);
+        IWETH(WETH).withdraw(amountETH);
+        _safeTransferETH(to, amountETH);
     }
 
     function getAmountsOut(

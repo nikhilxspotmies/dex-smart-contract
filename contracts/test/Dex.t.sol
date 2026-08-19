@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/Dex.sol"; // Adjust this path to where your contract file is!
+import {MockWETH} from "../src/MockWETH.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Mock Token for testing
@@ -15,6 +16,7 @@ contract MockERC20 is ERC20 {
 contract DexTest is Test {
     Factory factory;
     Router router;
+    MockWETH weth;
     MockERC20 tokenA;
     MockERC20 tokenB;
     address pairAddress;
@@ -29,7 +31,8 @@ contract DexTest is Test {
         factory = new Factory();
 
         // 2. Deploy Router
-        router = new Router(address(factory));
+        weth = new MockWETH();
+        router = new Router(address(factory), address(weth));
 
         // 3. Deploy Mock Tokens
         tokenA = new MockERC20("Token A", "TKA");

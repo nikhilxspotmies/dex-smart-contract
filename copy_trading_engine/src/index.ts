@@ -4,6 +4,7 @@ import { PRIVATE_KEY, RPC_URL, resolveTokenDecimals } from "./config/contracts.j
 import { VaultManager } from "./managers/VaultManager.js";
 import { PortfolioAnalyzer } from "./logic/Portfolio.js";
 import { TradeExecutor } from "./logic/Executor.js";
+import { WhaleTradeListener } from "./logic/WhaleTradeListener.js";
 
 // Setup Provider & Signer
 const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -13,9 +14,18 @@ const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 const vaultManager = new VaultManager(provider);
 const portfolioAnalyzer = new PortfolioAnalyzer(provider);
 const tradeExecutor = new TradeExecutor(wallet);
+const whaleTradeListener = new WhaleTradeListener(provider, vaultManager, portfolioAnalyzer, tradeExecutor);
 
 let isProcessing = false;
 
+/**
+ * Slow reconciliation backstop — no longer the primary trigger. WhaleTradeListener
+ * mirrors trades in near-real-time off Router.SwapExecuted; this still runs
+ * infrequently (see bootstrap()) as a safety net in case an event is ever missed, and
+ * to eventually converge any vault that's drifted for other reasons (e.g. a follower
+ * deposited more funds). Kept intentionally close to its original form since it's
+ * proven, working code — only its role and frequency changed.
+ */
 async function runEngine() {
     if (isProcessing) {
         console.log("Engine busy, skipping cycle.");
@@ -115,11 +125,14 @@ async function runEngine() {
 async function bootstrap() {
     await resolveTokenDecimals(provider);
 
-    // Start Cron (Every 30 seconds)
-    cron.schedule('*/30 * * * * *', runEngine);
+    // Primary trigger: real-time trade mirroring off Router.SwapExecuted.
+    await whaleTradeListener.start();
 
-    // Immediate Start
-    console.log("Copy Trading Engine V2 Initialized.");
+    // Backstop: reconciliation pass every 30 min (was every 30s when this was the
+    // only mechanism) — catches anything the event-driven path missed.
+    cron.schedule('*/30 * * * *', runEngine);
+
+    console.log("Copy Trading Engine V2 Initialized (event-driven + 30min backstop).");
     runEngine();
 }
 

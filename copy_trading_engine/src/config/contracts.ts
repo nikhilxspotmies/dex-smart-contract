@@ -45,7 +45,8 @@ export const VAULT_ABI = [
 
 export const ROUTER_ABI = [
     "function getAmountsOut(uint amountIn, address[] memory path) view returns (uint[] memory amounts)",
-    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) returns (uint[] memory amounts)"
+    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) returns (uint[] memory amounts)",
+    "event SwapExecuted(address indexed sender, address[] path, uint256[] amounts, address indexed to)"
 ];
 
 export const ERC20_ABI = [
@@ -57,25 +58,40 @@ export const ERC20_ABI = [
 // --- Whitelist ---
 // `decimals` here are defaults; the real values are read on-chain by
 // resolveTokenDecimals() at startup so we never assume 18 (local USDC is 6-dec).
+// Expanded from the original 2-token (USDC/ETH) demo whitelist to match the full
+// token list backend/src/constants/tokens.ts uses for real whale portfolio pricing —
+// keeping the two whitelists in sync is a manual, accepted duplication (same pattern
+// as the ABI duplication CLAUDE.md already documents elsewhere).
 export const WHITELIST = {
     "USDC": {
-        // Token A (asset in this demo)
-        address: process.env.TOKEN_A_ADDRESS || "0x0000000000000000000000000000000000000000",
+        // Token A (kept for backward compat with existing TOKEN_A_ADDRESS env var)
+        address: process.env.TOKEN_A_ADDRESS || process.env.USDC_ADDRESS || "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
         decimals: 18,
         symbol: "USDC"
     },
     "ETH": {
-        // Token B (quote token in this demo)
-        address: process.env.TOKEN_B_ADDRESS || "0x0000000000000000000000000000000000000000",
+        // Token B (kept for backward compat with existing TOKEN_B_ADDRESS env var)
+        address: process.env.TOKEN_B_ADDRESS || process.env.ETH_ADDRESS || "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
         decimals: 18,
         symbol: "ETH"
-    }
+    },
+    "BTCB": { address: process.env.BTCB_ADDRESS || "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c", decimals: 18, symbol: "BTCB" },
+    "USDT": { address: process.env.USDT_ADDRESS || "0x55d398326f99059fF775485246999027B3197955", decimals: 18, symbol: "USDT" },
+    "WBNB": { address: process.env.WBNB_ADDRESS || "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", decimals: 18, symbol: "WBNB" },
+    "XRP": { address: process.env.XRP_ADDRESS || "0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE", decimals: 18, symbol: "XRP" },
+    "SOL": { address: process.env.SOL_ADDRESS || "0x570A5D26f7765Ecb712C0924E4De545B89fD43dF", decimals: 18, symbol: "SOL" },
+    "TRX": { address: process.env.TRX_ADDRESS || "0xCE7de646e7208a4Ef112cb6ed5038FA6cC6b12e3", decimals: 6, symbol: "TRX" },
+    "DOGE": { address: process.env.DOGE_ADDRESS || "0xbA2aE424d960c26247Dd6c32edC70B295c744C43", decimals: 8, symbol: "DOGE" },
+    "CAKE": { address: process.env.CAKE_ADDRESS || "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82", decimals: 18, symbol: "CAKE" },
 };
 
-// Base Token for Pricing (the quote token). QUOTE_TOKEN_DECIMALS is populated
-// on-chain by resolveTokenDecimals() — exported as `let` so importers see the
-// resolved value via live bindings.
-export const QUOTE_TOKEN_ADDRESS = WHITELIST.ETH.address;
+// Base Token for Pricing (the quote token). Switched from ETH to USDT so this
+// engine's portfolio valuations agree with backend/src/services/WhaleStatsService.ts
+// (which already quotes in USDT) — otherwise the same whale could show two different
+// "portfolio values" depending on which service computed it.
+// QUOTE_TOKEN_DECIMALS is populated on-chain by resolveTokenDecimals() — exported as
+// `let` so importers see the resolved value via live bindings.
+export const QUOTE_TOKEN_ADDRESS = WHITELIST.USDT.address;
 export let QUOTE_TOKEN_DECIMALS = 18;
 
 /**
@@ -92,6 +108,6 @@ export async function resolveTokenDecimals(provider: ethers.Provider): Promise<v
             console.warn(`Could not read decimals for ${config.symbol} (${config.address}), keeping ${config.decimals}`);
         }
     }
-    QUOTE_TOKEN_DECIMALS = WHITELIST.ETH.decimals;
-    console.log(`Resolved decimals — USDC: ${WHITELIST.USDC.decimals}, ETH(quote): ${WHITELIST.ETH.decimals}`);
+    QUOTE_TOKEN_DECIMALS = WHITELIST.USDT.decimals;
+    console.log(`Resolved decimals for ${Object.keys(WHITELIST).length} whitelisted tokens (quote: USDT, ${WHITELIST.USDT.decimals} dec)`);
 }

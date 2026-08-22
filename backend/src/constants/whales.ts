@@ -1,34 +1,16 @@
+/**
+ * Curated list of wallets featured on the Copy Trading page — identity only.
+ * Performance stats (followers, ROI, PnL) are computed at request time from live
+ * on-chain state by WhaleStatsService, never hardcoded here. See the implementation
+ * plan for why: a hand-typed "72% win rate" is not something anyone measured.
+ */
 export const TRADERS = [
     {
         name: "SRV11",
-        roi: "+156%",
-        followers: "2.4K",
-        winRate: "72%",
-        pnl: "$45,230",
         address: "0x4848489f0b2BEdd788c696e2D79b6b69D7484848"
     },
-    // {
-    //     name: "AlphaTrader",
-    //     roi: "+89%",
-    //     followers: "1.8K",
-    //     winRate: "68%",
-    //     pnl: "$28,450",
-    //     address: "0x0000000000000000000000000000000000000001"
-    // },
-    // {
-    //     name: "DeFiMaster",
-    //     roi: "+234%",
-    //     followers: "3.1K",
-    //     winRate: "75%",
-    //     pnl: "$67,890",
-    //     address: "0x0000000000000000000000000000000000000002"
-    // },
-    // {
-    //     name: "SwingKing",
-    //     roi: "+67%",
-    //     followers: "950",
-    //     winRate: "65%",
-    //     pnl: "$15,670",
-    //     address: "0x0000000000000000000000000000000000000003"
-    // },
+    {
+        name: "Michael Amero",
+        address: "0xC9488Ccf980DD0F4EdCC123E77a12e68B29f341F"
+    },
 ];

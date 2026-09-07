@@ -58,6 +58,15 @@ export const config = {
     backfillChunkSize: Number(envOr("BACKFILL_CHUNK_SIZE", "2000")),
     pollIntervalMs: Number(envOr("POLL_INTERVAL_MS", "15000")),
 
+    // Hard cap on how long releaseDeposit() will await a release() tx's confirmation on Amero X.
+    // ethers' tx.wait() has no built-in timeout — left unbounded, an Amero X outage (halted
+    // consensus, dropped mempool) freezes this single await forever, which freezes the entire
+    // mainLoop with it (every subsequent tick, including the stale-release reconciler that would
+    // otherwise have recovered from exactly this). Timing out here just fails that one tick;
+    // the deposit falls back into the retry pool and the "already released" guard in
+    // releaseDeposit()'s catch block makes a later duplicate send harmless.
+    releaseWaitTimeoutMs: Number(envOr("RELEASE_WAIT_TIMEOUT_MS", "90000")),
+
     // Auto-sweep: periodically pushes AmxSale's accumulated BNB/USDC/USDT to their treasury
     // addresses. Uses the same relayer key as a BSC gas-payer — sweep() is permissionless (no
     // role needed), so this doesn't grant the key any new on-chain privilege, just reuses it as

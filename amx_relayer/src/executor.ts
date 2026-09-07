@@ -12,6 +12,16 @@ function requiredConfirmations(amxOut: bigint): number {
     return amxOut >= config.largeThresholdAmxE18 ? config.confirmationsLarge : config.confirmationsSmall;
 }
 
+/** Races `promise` against a timer so a hung await (e.g. tx.wait() during an Amero X outage)
+ * fails fast instead of blocking the single-threaded mainLoop forever — see config.releaseWaitTimeoutMs. */
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function hasEnoughConfirmations(deposit: DepositRow): Promise<boolean> {
     const bscProvider = getBscProvider();
     const currentBlock = await bscProvider.getBlockNumber();
@@ -32,7 +42,11 @@ async function releaseDeposit(deposit: DepositRow): Promise<void> {
         markReleaseSent(deposit.deposit_id, tx.hash);
         console.log(`[executor] release() sent for deposit=${deposit.deposit_id} tx=${tx.hash}`);
 
-        const receipt = await tx.wait();
+        const receipt = await withTimeout<ethers.ContractTransactionReceipt | null>(
+            tx.wait(),
+            config.releaseWaitTimeoutMs,
+            `release tx wait timed out after ${config.releaseWaitTimeoutMs}ms (tx may still confirm later)`
+        );
         if (receipt && receipt.status === 1) {
             markReleased(deposit.deposit_id);
             console.log(`[executor] release() confirmed for deposit=${deposit.deposit_id}`);
